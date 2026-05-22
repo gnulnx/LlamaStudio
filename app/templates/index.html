@@ -1243,6 +1243,131 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--text-muted);
         }
+
+        /* 🔧 Glassmorphic Tool Execution Cards */
+        .tool-card {
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 10px;
+            margin: 12px 0;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 100%;
+        }
+
+        .tool-card.running {
+            border-color: rgba(127, 90, 240, 0.4);
+            box-shadow: 0 0 15px rgba(127, 90, 240, 0.1);
+        }
+
+        .tool-card.success {
+            border-color: rgba(46, 204, 113, 0.4);
+            box-shadow: 0 0 15px rgba(46, 204, 113, 0.1);
+        }
+
+        .tool-card.error {
+            border-color: rgba(231, 76, 60, 0.4);
+            box-shadow: 0 0 15px rgba(231, 76, 60, 0.1);
+        }
+
+        .tool-header {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tool-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+        }
+
+        .tool-title i.status-icon {
+            font-size: 14px;
+            transition: transform 0.3s ease;
+        }
+
+        .tool-card.running .tool-title i.status-icon {
+            color: var(--accent);
+            animation: spin 1.5s infinite linear;
+        }
+
+        .tool-card.success .tool-title i.status-icon {
+            color: var(--status-green);
+        }
+
+        .tool-card.error .tool-title i.status-icon {
+            color: var(--status-red);
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .tool-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .tool-card.running .tool-badge {
+            background: rgba(127, 90, 240, 0.15);
+            color: var(--accent-hover);
+        }
+
+        .tool-card.success .tool-badge {
+            background: rgba(46, 204, 113, 0.15);
+            color: var(--status-green);
+        }
+
+        .tool-card.error .tool-badge {
+            background: rgba(231, 76, 60, 0.15);
+            color: var(--status-red);
+        }
+
+        .tool-details {
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.15);
+            font-size: 13px;
+        }
+
+        .tool-args-label, .tool-result-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+
+        .tool-args-pre, .tool-result-pre {
+            background: rgba(0, 0, 0, 0.3) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            padding: 10px !important;
+            border-radius: 6px !important;
+            margin: 4px 0 0 0 !important;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -2240,13 +2365,206 @@
         }
     }
 
+    function toggleToolDetails(id) {
+        const el = document.getElementById(id);
+        const chev = document.getElementById(`chevron-${id}`);
+        if (el) {
+            if (el.style.display === 'none') {
+                el.style.display = 'flex';
+                if (chev) chev.style.transform = 'rotate(180deg)';
+            } else {
+                el.style.display = 'none';
+                if (chev) chev.style.transform = 'rotate(0deg)';
+            }
+        }
+    }
+
+    function renderStreamBlocks(container, blocks) {
+        let html = '';
+        for (const b of blocks) {
+            if (b.type === 'reasoning') {
+                if (b.content) {
+                    html += `
+                        <details class="reasoning" open>
+                            <summary><i class="fa-solid fa-brain"></i> Thinking Process</summary>
+                            <div class="reasoning-content">${marked.parse(escapeHtml(b.content))}</div>
+                        </details>
+                    `;
+                }
+            } else if (b.type === 'text') {
+                if (b.content) {
+                    html += marked.parse(b.content);
+                }
+            } else if (b.type === 'tool') {
+                let statusIcon = 'fa-solid fa-circle-notch status-icon';
+                let statusClass = 'running';
+                let badgeText = 'Running';
+                
+                if (b.status === 'success') {
+                    statusIcon = 'fa-solid fa-circle-check status-icon';
+                    statusClass = 'success';
+                    badgeText = 'Completed';
+                } else if (b.status === 'error') {
+                    statusIcon = 'fa-solid fa-circle-xmark status-icon';
+                    statusClass = 'error';
+                    badgeText = 'Failed';
+                }
+                
+                let formattedArgs = b.arguments;
+                try {
+                    if (typeof formattedArgs === 'string' && formattedArgs.trim()) {
+                        const parsed = JSON.parse(formattedArgs);
+                        formattedArgs = JSON.stringify(parsed, null, 2);
+                    }
+                } catch(e) {}
+
+                const detailsId = `tool-details-${b.id || Math.random().toString(36).substr(2, 9)}`;
+
+                html += `
+                    <div class="tool-card ${statusClass}" id="tool-${b.id || ''}">
+                        <div class="tool-header" onclick="toggleToolDetails('${detailsId}')">
+                            <div class="tool-title">
+                                <i class="${statusIcon}"></i>
+                                <span>🔧 ${escapeHtml(b.name || 'Tool Call')}</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="tool-badge">${badgeText}</span>
+                                <i class="fa-solid fa-chevron-down" id="chevron-${detailsId}" style="font-size:11px; transition:transform 0.2s;"></i>
+                            </div>
+                        </div>
+                        <div class="tool-details" id="${detailsId}" style="display: ${b.status === 'running' ? 'flex' : 'none'};">
+                            ${formattedArgs ? `
+                                <div>
+                                    <div class="tool-args-label">Input Arguments</div>
+                                    <pre class="tool-args-pre"><code>${escapeHtml(formattedArgs)}</code></pre>
+                                </div>
+                            ` : ''}
+                            ${b.result ? `
+                                <div>
+                                    <div class="tool-result-label">Execution Result</div>
+                                    <pre class="tool-result-pre"><code>${escapeHtml(b.result)}</code></pre>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        container.querySelector('.msg-body').innerHTML = html || `<div class="typing-loader"><span></span><span></span><span></span></div>`;
+        scrollToMessagesBottom();
+    }
+
     function renderMessagesContent(messages) {
         const messagesList = document.getElementById('messagesList');
         const welcome = document.getElementById('emptyWelcomeState');
         
         if (messages.length > 0) {
             if (welcome) welcome.style.display = "none";
-            messagesList.innerHTML = messages.map(m => createMessageHtmlSnippet(m.role, m.content)).join('');
+            
+            let html = '';
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
+                if (msg.role === 'user') {
+                    html += `
+                        <div class="msg user">
+                            <div class="msg-avatar">Y</div>
+                            <div class="msg-body">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+                        </div>
+                    `;
+                } else if (msg.role === 'assistant') {
+                    let assistantHtml = '';
+                    let textContent = msg.content || '';
+                    let thinkingContent = '';
+                    
+                    const thinkStart = textContent.indexOf('<think>');
+                    const thinkEnd = textContent.indexOf('</think>');
+                    if (thinkStart !== -1 && thinkEnd !== -1 && thinkEnd > thinkStart) {
+                        thinkingContent = textContent.substring(thinkStart + 7, thinkEnd);
+                        textContent = textContent.substring(thinkEnd + 8);
+                    }
+                    
+                    if (thinkingContent) {
+                        assistantHtml += `
+                            <details class="reasoning">
+                                <summary><i class="fa-solid fa-brain"></i> Thinking Process</summary>
+                                <div class="reasoning-content">${marked.parse(escapeHtml(thinkingContent))}</div>
+                            </details>
+                        `;
+                    }
+                    
+                    if (textContent) {
+                        assistantHtml += marked.parse(textContent);
+                    }
+                    
+                    if (msg.tool_calls && msg.tool_calls.length > 0) {
+                        for (const tc of msg.tool_calls) {
+                            const toolResp = messages.find(m => m.role === 'tool' && m.tool_call_id === tc.id);
+                            
+                            let statusClass = 'success';
+                            let statusIcon = 'fa-solid fa-circle-check status-icon';
+                            let badgeText = 'Completed';
+                            let result = toolResp ? toolResp.content : '';
+                            
+                            if (result && result.toLowerCase().startsWith('error')) {
+                                statusClass = 'error';
+                                statusIcon = 'fa-solid fa-circle-xmark status-icon';
+                                badgeText = 'Failed';
+                            } else if (!toolResp) {
+                                statusClass = 'running';
+                                statusIcon = 'fa-solid fa-circle-notch status-icon';
+                                badgeText = 'Running';
+                            }
+                            
+                            let formattedArgs = tc.function.arguments;
+                            try {
+                                if (typeof formattedArgs === 'string' && formattedArgs.trim()) {
+                                    const parsed = JSON.parse(formattedArgs);
+                                    formattedArgs = JSON.stringify(parsed, null, 2);
+                                }
+                            } catch(e) {}
+
+                            const detailsId = `tool-details-hist-${tc.id}`;
+                            
+                            assistantHtml += `
+                                <div class="tool-card ${statusClass}">
+                                    <div class="tool-header" onclick="toggleToolDetails('${detailsId}')">
+                                        <div class="tool-title">
+                                            <i class="${statusIcon}"></i>
+                                            <span>🔧 ${escapeHtml(tc.function.name || 'Tool Call')}</span>
+                                        </div>
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <span class="tool-badge">${badgeText}</span>
+                                            <i class="fa-solid fa-chevron-down" id="chevron-${detailsId}" style="font-size:11px; transition:transform 0.2s;"></i>
+                                        </div>
+                                    </div>
+                                    <div class="tool-details" id="${detailsId}" style="display: none;">
+                                        ${formattedArgs ? `
+                                            <div>
+                                                <div class="tool-args-label">Input Arguments</div>
+                                                <pre class="tool-args-pre"><code>${escapeHtml(formattedArgs)}</code></pre>
+                                            </div>
+                                        ` : ''}
+                                        ${result ? `
+                                            <div>
+                                                <div class="tool-result-label">Execution Result</div>
+                                                <pre class="tool-result-pre"><code>${escapeHtml(result)}</code></pre>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    html += `
+                        <div class="msg assistant">
+                            <div class="msg-avatar">AI</div>
+                            <div class="msg-body">${assistantHtml || '<div class="typing-loader"><span></span><span></span><span></span></div>'}</div>
+                        </div>
+                    `;
+                }
+            }
+            messagesList.innerHTML = html;
             messagesList.style.display = "flex";
         } else {
             if (welcome) welcome.style.display = "flex";
@@ -2377,6 +2695,7 @@
 
         let assistantAccumulator = '';
         let reasoningAccumulator = '';
+        let streamBlocks = [];
 
         try {
             const res = await fetch('/api/chat/send', {
@@ -2418,21 +2737,90 @@
                         }
 
                         if (data.reasoning) {
-                            reasoningAccumulator += data.reasoning;
-                            const detailsBlock = `<details class="reasoning" open><summary><i class="fa-solid fa-brain"></i> Thinking Process</summary><div class="reasoning-content">${marked.parse(escapeHtml(reasoningAccumulator))}</div></details>`;
-                            assistDiv.querySelector('.msg-body').innerHTML = detailsBlock;
-                            scrollToMessagesBottom();
+                            let lastBlock = streamBlocks[streamBlocks.length - 1];
+                            if (lastBlock && lastBlock.type === 'reasoning') {
+                                lastBlock.content += data.reasoning;
+                            } else {
+                                streamBlocks.push({ type: 'reasoning', content: data.reasoning });
+                            }
+                            renderStreamBlocks(assistDiv, streamBlocks);
                         }
 
                         if (data.content) {
-                            assistantAccumulator += data.content;
-                            let htmlContent = marked.parse(assistantAccumulator);
-                            if (reasoningAccumulator) {
-                                const detailsBlock = `<details class="reasoning"><summary><i class="fa-solid fa-brain"></i> Thinking Process</summary><div class="reasoning-content">${marked.parse(escapeHtml(reasoningAccumulator))}</div></details>`;
-                                htmlContent = detailsBlock + htmlContent;
+                            let lastBlock = streamBlocks[streamBlocks.length - 1];
+                            if (lastBlock && lastBlock.type === 'text') {
+                                lastBlock.content += data.content;
+                            } else {
+                                streamBlocks.push({ type: 'text', content: data.content });
                             }
-                            assistDiv.querySelector('.msg-body').innerHTML = htmlContent;
-                            scrollToMessagesBottom();
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.tool_call_delta) {
+                            const tc = data.tool_call_delta;
+                            const idx = tc.index ?? 0;
+                            let toolBlock = streamBlocks.find(b => b.type === 'tool' && (b.id === tc.id || b.index === idx));
+                            if (!toolBlock) {
+                                toolBlock = {
+                                    type: 'tool',
+                                    index: idx,
+                                    id: tc.id || '',
+                                    name: '',
+                                    arguments: '',
+                                    status: 'running',
+                                    result: ''
+                                };
+                                streamBlocks.push(toolBlock);
+                            }
+                            if (tc.id) toolBlock.id = tc.id;
+                            if (tc.function) {
+                                if (tc.function.name) toolBlock.name += tc.function.name;
+                                if (tc.function.arguments) toolBlock.arguments += tc.function.arguments;
+                            }
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.type === 'tool_exec_start') {
+                            const id = data.id;
+                            let toolBlock = streamBlocks.find(b => b.type === 'tool' && b.id === id);
+                            if (!toolBlock) {
+                                toolBlock = {
+                                    type: 'tool',
+                                    id: id,
+                                    name: data.name,
+                                    arguments: typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments, null, 2),
+                                    status: 'running',
+                                    result: ''
+                                };
+                                streamBlocks.push(toolBlock);
+                            } else {
+                                toolBlock.status = 'running';
+                                if (data.name) toolBlock.name = data.name;
+                                if (data.arguments) {
+                                    toolBlock.arguments = typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments, null, 2);
+                                }
+                            }
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.type === 'tool_exec_end') {
+                            const id = data.id;
+                            let toolBlock = streamBlocks.find(b => b.type === 'tool' && b.id === id);
+                            if (!toolBlock) {
+                                toolBlock = {
+                                    type: 'tool',
+                                    id: id,
+                                    name: data.name,
+                                    arguments: '',
+                                    status: 'success',
+                                    result: data.result
+                                };
+                                streamBlocks.push(toolBlock);
+                            } else {
+                                toolBlock.status = data.result && data.result.toLowerCase().startsWith('error') ? 'error' : 'success';
+                                toolBlock.result = data.result;
+                            }
+                            renderStreamBlocks(assistDiv, streamBlocks);
                         }
                     } catch(err) { }
                 }

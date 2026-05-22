@@ -189,7 +189,14 @@ async def switch_conversation(conv_id: str):
     if conv is None:
         raise HTTPException(404, "Conversation not found")
     return {"id": conv.id, "messages": [
-        {"role": m.role, "content": m.content} for m in conv.messages
+        {
+            "role": m.role,
+            "content": m.content,
+            "timestamp": m.timestamp,
+            "tool_calls": m.tool_calls,
+            "tool_call_id": m.tool_call_id,
+            "name": m.name
+        } for m in conv.messages
     ]}
 
 @app.post("/api/chat/rename/{conv_id}")

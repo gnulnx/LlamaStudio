@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Application logs & database
+logs/
+app/conversations.json
+app/model_settings.json
+
+# User temporary test files
+HelloFromMe.txt
