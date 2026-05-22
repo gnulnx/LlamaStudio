@@ -17,7 +17,7 @@ from .server_manager import server
 from .chat import chat
 
 app = FastAPI(title="LLamaStudio")
-templates = Jinja2Templates(directory="/home/gnulnx/LLamaStuiod/app/templates")
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 # Mount static files
 if Path("static").exists():

@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from .logger import logger
 
-WORKSPACE_ROOT = Path("/home/gnulnx/LLamaStuiod").resolve()
+WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 
 def check_path_safe(file_path: str) -> Path:
     """Resolve file path and guarantee it remains strictly within the workspace root."""

@@ -35,11 +35,11 @@ class Settings(BaseSettings):
     APP_HOST: str = "127.0.0.1"
 
     # Log file for llama-server output
-    LOG_DIR: str = "/home/gnulnx/LLamaStuiod/logs"
+    LOG_DIR: str = str(Path(__file__).parent.parent / "logs")
 
     # Persistence files
-    CONVERSATIONS_FILE: str = "/home/gnulnx/LLamaStuiod/app/conversations.json"
-    MODEL_SETTINGS_FILE: str = "/home/gnulnx/LLamaStuiod/app/model_settings.json"
+    CONVERSATIONS_FILE: str = str(Path(__file__).parent / "conversations.json")
+    MODEL_SETTINGS_FILE: str = str(Path(__file__).parent / "model_settings.json")
 
     model_config = {"env_prefix": "LLAMASTUDIO_"}
 
