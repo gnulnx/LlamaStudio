@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#1a1a2e"/>
+  <circle cx="42" cy="64" r="16" fill="#e94560"/>
+  <circle cx="86" cy="64" r="16" fill="#e94560" opacity="0.5"/>
+  <path d="M58 64 Q64 48 70 64 Q64 80 58 64Z" fill="#e94560" opacity="0.8"/>
+  <text x="64" y="100" text-anchor="middle" fill="#e4e6eb" font-family="sans-serif" font-size="14" font-weight="bold">LL</text>
+</svg>

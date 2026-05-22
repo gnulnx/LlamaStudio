@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LLamaStudio
+Comment=Chat interface for llama.cpp
+Exec=/home/gnulnx/LLamaStuiod/start.py
+Icon=llamastudio
+Terminal=false
+Categories=Utility;Network;Chat;
+StartupNotify=false

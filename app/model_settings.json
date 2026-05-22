@@ -1,0 +1,14 @@
+{
+  "/home/gnulnx/.lmstudio/models/Jackrong/Qwopus3.6-27B-v2-GGUF/Qwopus3.6-27B-v2-Q4_K_S.gguf": {
+    "ctx_size": 4096,
+    "gpu_layers": 40,
+    "threads": 4,
+    "flash_attn": true,
+    "mmap": true,
+    "kv_cache_type": "q8_0",
+    "vocab_type": "q8_0",
+    "seed": -1,
+    "rope_freq_base": 0.0,
+    "rope_freq_scale": 0.0
+  }
+}
