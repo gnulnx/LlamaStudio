@@ -16,6 +16,7 @@ class Message:
     role: str  # "user", "assistant", "system", "tool"
     content: str | None = None
     timestamp: float = field(default_factory=time.time)
+    reasoning: str | None = None
     tool_calls: list[dict] | None = None
     tool_call_id: str | None = None
     name: str | None = None
@@ -53,6 +54,7 @@ class ChatManager:
                                 role=m["role"],
                                 content=m.get("content"),
                                 timestamp=m.get("timestamp", time.time()),
+                                reasoning=m.get("reasoning"),
                                 tool_calls=m.get("tool_calls"),
                                 tool_call_id=m.get("tool_call_id"),
                                 name=m.get("name")
@@ -90,6 +92,7 @@ class ChatManager:
                                 "role": m.role,
                                 "content": m.content,
                                 "timestamp": m.timestamp,
+                                "reasoning": m.reasoning,
                                 "tool_calls": m.tool_calls,
                                 "tool_call_id": m.tool_call_id,
                                 "name": m.name
@@ -363,6 +366,7 @@ class ChatManager:
                     conv.messages.append(Message(
                         role="assistant",
                         content=assistant_text or None,
+                        reasoning=reasoning_text or None,
                         tool_calls=cleaned_tcs
                     ))
                     self._save_to_disk()
@@ -402,8 +406,11 @@ class ChatManager:
                     continue
                 else:
                     # Add standard assistant message to history
-                    final_text = assistant_text or reasoning_text
-                    conv.messages.append(Message(role="assistant", content=final_text))
+                    conv.messages.append(Message(
+                        role="assistant",
+                        content=assistant_text or None,
+                        reasoning=reasoning_text or None
+                    ))
                     self._save_to_disk()
                     
                     # Send end marker and break
