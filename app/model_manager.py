@@ -94,3 +94,67 @@ def refresh_models() -> list[ModelInfo]:
     global _model_cache
     _model_cache = scan_models()
     return _model_cache
+
+
+import httpx
+from typing import Dict, List, Any, Optional
+
+async def search_huggingface_models(query: str, sort: str = "downloads") -> List[Dict[str, Any]]:
+    """Search Hugging Face models by query with a GGUF filter."""
+    url = "https://huggingface.co/api/models"
+    params = {
+        "search": query,
+        "filter": "gguf",
+        "sort": sort,
+        "limit": 30,
+        "full": "true"
+    }
+    
+    headers = {"User-Agent": "LLamaStudio-Client"}
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code != 200:
+                return []
+            return resp.json()
+        except Exception as e:
+            from .logger import logger
+            logger.error(f"[model_manager] Error searching HF models: {e}")
+            return []
+
+async def get_huggingface_model_details(repo_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch complete metadata of a Hugging Face repository including file sizes."""
+    url = f"https://huggingface.co/api/models/{repo_id}"
+    headers = {"User-Agent": "LLamaStudio-Client"}
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return None
+            return resp.json()
+        except Exception as e:
+            from .logger import logger
+            logger.error(f"[model_manager] Error fetching HF details: {e}")
+            return None
+
+async def get_huggingface_model_readme(repo_id: str) -> str:
+    """Download the raw README markdown of a model from Hugging Face."""
+    url = f"https://huggingface.co/{repo_id}/raw/main/README.md"
+    headers = {"User-Agent": "LLamaStudio-Client"}
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                # Try lowercase readme.md fallback
+                url_fallback = f"https://huggingface.co/{repo_id}/raw/main/readme.md"
+                resp = await client.get(url_fallback, headers=headers)
+                if resp.status_code != 200:
+                    return f"# {repo_id}\nNo README.md found in this repository."
+            return resp.text
+        except Exception as e:
+            from .logger import logger
+            logger.error(f"[model_manager] Error fetching HF README: {e}")
+            return f"# {repo_id}\nError retrieving repository documentation: {e}"

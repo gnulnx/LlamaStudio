@@ -172,6 +172,94 @@ async def refresh_models():
         ]
     }
 
+
+
+# ─── Hugging Face Search & Downloader Endpoints ────────────────
+
+import asyncio
+
+@app.get("/api/models/search")
+async def search_models(q: str = "", sort: str = "downloads"):
+    """Search Hugging Face GGUF models."""
+    from .model_manager import search_huggingface_models
+    results = await search_huggingface_models(q, sort)
+    return {"models": results}
+
+@app.get("/api/models/hf-details")
+async def get_hf_model_details(repo_id: str):
+    """Get metadata and README content from a Hugging Face repo."""
+    from .model_manager import get_huggingface_model_details, get_huggingface_model_readme
+    
+    # Run fetch details and readme concurrently
+    details, readme = await asyncio.gather(
+        get_huggingface_model_details(repo_id),
+        get_huggingface_model_readme(repo_id)
+    )
+    
+    if details is None:
+        raise HTTPException(404, f"Hugging Face repository '{repo_id}' not found.")
+        
+    return {
+        "details": details,
+        "readme": readme
+    }
+
+@app.post("/api/models/download")
+async def download_model(request: Request):
+    """Trigger background GGUF model download from Hugging Face."""
+    body = await request.json()
+    repo_id = body.get("repo_id")
+    filename = body.get("filename")
+    
+    if not repo_id or not filename:
+        raise HTTPException(400, "Both repo_id and filename are required.")
+        
+    from .downloader import downloader
+    if downloader.is_active:
+        raise HTTPException(409, "Another download is already in progress.")
+        
+    success = await downloader.start_download(repo_id, filename)
+    if not success:
+        raise HTTPException(500, "Failed to start background download.")
+        
+    return {"status": "ok", "message": f"Started download of {filename}"}
+
+@app.get("/api/models/download/progress")
+async def get_download_progress():
+    """Stream download progress back to frontend in real time via SSE."""
+    from .downloader import downloader
+    
+    async def progress_generator():
+        while True:
+            prog = downloader.get_progress()
+            yield f"data: {json.dumps(prog)}\n\n"
+            if prog.get("status") in ["completed", "failed", "cancelled", "idle"]:
+                break
+            await asyncio.sleep(1)
+            
+    return StreamingResponse(
+        progress_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+@app.post("/api/models/download/cancel")
+async def cancel_download():
+    """Cancel any active model download task."""
+    from .downloader import downloader
+    await downloader.cancel_download()
+    return {"status": "ok"}
+
+@app.get("/api/models/download/active")
+async def is_download_active():
+    """Check if a download task is currently active."""
+    from .downloader import downloader
+    return {"active": downloader.is_active, "progress": downloader.get_progress()}
+
+
 # ─── Chat ─────────────────────────────────────────────────────
 
 @app.get("/api/chat/conversations")
