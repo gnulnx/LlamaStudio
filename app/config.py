@@ -4,10 +4,32 @@ Edit these values to match your setup.
 """
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import shutil
+
+def resolve_llama_server_bin() -> str:
+    """Dynamically search for llama-server on PATH or standard local build directories."""
+    # 1. Check globally installed in system PATH (e.g. via brew on macOS, apt, or manual installation)
+    for binary in ["llama-server", "llama.cpp-server"]:
+        resolved = shutil.which(binary)
+        if resolved:
+            return resolved
+
+    # 2. Check standard source build locations in user's home folder
+    home = Path.home()
+    possible_paths = [
+        home / "llama.cpp" / "build" / "bin" / "llama-server",
+        home / "llama.cpp" / "llama-server",
+    ]
+    for p in possible_paths:
+        if p.exists():
+            return str(p)
+
+    # 3. Fallback default path
+    return str(home / "llama.cpp" / "build" / "bin" / "llama-server")
 
 class Settings(BaseSettings):
     # llama.cpp server settings
-    LLAMA_SERVER_BIN: str = "/home/gnulnx/llama.cpp/build/bin/llama-server"
+    LLAMA_SERVER_BIN: str = resolve_llama_server_bin()
     LLAMA_SERVER_PORT: int = 1234
     LLAMA_SERVER_CTX_SIZE: int = 16384
     LLAMA_SERVER_GPU_LAYERS: int = 999
@@ -16,12 +38,12 @@ class Settings(BaseSettings):
     LLAMA_SERVER_VOCAB_TYPE: str = "q8_0"
     LLAMA_SERVER_OVERRIDE_KV: str = ""
 
-    # Default model path
-    DEFAULT_MODEL: str = "/home/gnulnx/.lmstudio/models/Jackrong/Qwopus3.6-27B-v2-GGUF/Qwopus3.6-27B-v2-Q4_K_S.gguf"
+    # Default fallback model path (unused, starts clean without loaded model)
+    DEFAULT_MODEL: str = ""
 
-    # Model directories to scan
+    # Model directories to scan (portable user home folder)
     MODEL_DIRS: list[str] = [
-        "/home/gnulnx/.lmstudio/models",
+        str(Path.home() / ".lmstudio" / "models"),
     ]
 
     # Chat settings
