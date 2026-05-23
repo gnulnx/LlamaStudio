@@ -1,59 +1,88 @@
 # 🦙 LLamaStudio
 
-A beautiful, desktop-grade chat interface and local server manager for `llama.cpp`, crafted with **FastAPI** + **HTMX** for ultra-lightweight, zero-framework execution. Designed specifically for single-GPU setups (like Pop!_OS / Linux) to replicate the professional feel of LM Studio with seamless desktop integration.
+A premium, desktop-grade chat interface and local server manager for `llama.cpp`, crafted with **FastAPI** + **HTMX** for ultra-lightweight, zero-framework execution. 
+
+Designed to replicate the professional look and feel of commercial alternatives, **LLamaStudio** is a self-contained local workspace that manages model lifecycles, features a smart VRAM estimator, scans local folders, and lets you search and download models directly from the Hugging Face Hub.
 
 ---
 
-## ✨ Features
+## 📸 Screenshots & Showcase
 
-- **⚡ Lightweight Frontend**: Powered by HTMX and Tailwind CSS (via CDN) with no bulky node modules or JS framework overhead.
-- **🛠️ Single-GPU Optimized**: Designed around the hard constraint of single-GPU operations. Easily load, switch, and eject models.
-- **📂 Model Discovery**: Scans local GGUF model directories (e.g. `~/.lmstudio/models`) automatically to present a clean model browser.
-- **⚙️ Complete Settings Control**: Easily modify context size, GPU offloading layers, temperature, system prompts, flash attention, and KV cache quantization dynamically in the UI.
-- **🪐 Process Management**: Automatically manages the lifecycle of the underlying `llama-server` process. Starts the server only when a model is loaded, and stops it cleanly on eject.
-- **🖥️ Desktop Integration**: Includes a custom Pop!_OS / Ubuntu Applications launcher with a premium geometric vector icon.
+### 1. Main Chat Dashboard
+A gorgeous, Pop!_OS-harmonized dark interface with streaming, collapsible markdown reasoning (thinking) processes, and real-time agentic tool execution logs.
+![Main Chat Dashboard](imgs/chat_interface.png)
 
----
+### 2. GGUF Model Browser & Settings
+A dynamic local model explorer that scans your directories and lets you adjust context length, GPU offload layers, CPU threads, flash attention, and KV cache quantizations on the fly.
+![GGUF Model Browser](imgs/model_settings.png)
 
-## 🛠️ Prerequisites
-
-1. **Python 3.13** (Recommended) or 3.10+
-2. **Miniconda** or **Anaconda** (Highly recommended for package management)
-3. **llama.cpp** built from source (or pre-compiled binaries):
-   - By default, LLamaStudio expects the binary at `/home/gnulnx/llama.cpp/build/bin/llama-server`.
-   - Update this path in `app/config.py` to match your local installation.
+### 3. Hugging Face Discover Hub
+Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Estimator** calibrated to your hardware, and a floating background download progress card with live speed (MB/s), ETA, and cancel controls.
+![Hugging Face Discover Hub](imgs/discover_models.png)
 
 ---
 
-## 🚀 Installation & Setup
+## ✨ Key Features
 
-Follow these simple steps to set up and run LLamaStudio on your machine:
+- **⚡ Zero Node Modules**: Built with HTMX, Tailwind CSS (via CDN), and Vanilla JS. It is incredibly fast, responsive, and has a memory footprint of just a few megabytes.
+- **🧭 Hugging Face Discover Tab**: Search the public Hugging Face Hub for GGUF models directly inside the app, view readmes, select quantizations, and download files in the background.
+- **🚀 Smart VRAM Estimator**: calulated specifically for your hardware (fits fully on **RTX 5090 32GB VRAM**, partial offload warning, or heavy CPU fallback warning).
+- **📂 Automatic Model Scanning**: Scans standard directories (like `~/.lmstudio/models`) automatically on startup or via a one-click rescan button.
+- **🪐 Process Lifecycle Manager**: The underlying `llama-server` process only spins up when you explicitly load a model, releasing all system resources and GPU VRAM instantly when you click "Eject".
+- **🔧 Sandboxed Agentic Tool Use**: Leverages standard local tools (file read/write, path resolving, etc.) with real-time, glassmorphic UI execution logs.
+- **🖥️ XDG-Compliant Persistence**: Conversations and model settings profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations!
+- **📦 Full Linux & macOS Portability**: Server binaries and model directories are resolved dynamically on startup.
 
-### 1. Clone the Repository
+---
+
+## 🛠️ Installation & Setup
+
+LLamaStudio is compatible with **Linux** and **macOS** out-of-the-box. Choose your OS and python virtual environment preference below.
+
+### 🐧 1. Linux Installation
+
+#### Prerequisites
+1. **Python 3.10+** (Recommended: Python 3.13)
+2. **llama.cpp** built from source (or pre-compiled binary):
+   - By default, the app dynamically looks for the `llama-server` binary globally on your system PATH or locally inside your home directory at `~/llama.cpp/build/bin/llama-server`.
+
+#### Environment Setup
+
+##### Option A: Conda / Miniconda (Recommended)
 ```bash
-git clone https://github.com/yourusername/LlamaStudio.git
+# 1. Clone the repository
+git clone https://github.com/gnulnx/LlamaStudio.git
 cd LlamaStudio
-```
 
-### 2. Set Up the Conda Environment
-Create and activate a clean conda environment:
-```bash
+# 2. Create and activate a conda environment
 conda create -n llamastudio python=3.13 -y
 conda activate llamastudio
-```
 
-### 3. Install Python Dependencies
-```bash
+# 3. Install requirements
 pip install -r requirements.txt
 ```
 
-### 4. Install Desktop Launcher (Optional)
-To integrate the app seamlessly into your Linux desktop (Applications Menu):
+##### Option B: Python Virtualenv (`venv`)
+```bash
+# 1. Clone the repository
+git clone https://github.com/gnulnx/LlamaStudio.git
+cd LlamaStudio
+
+# 2. Create and activate a python venv environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install requirements
+pip install -r requirements.txt
+```
+
+#### 🖥️ Linux Desktop Launcher Integration (Optional)
+To integrate LLamaStudio directly into your Linux Application launcher menu (e.g., GNOME / Pop!_OS):
 ```bash
 # 1. Copy the desktop file to your local applications directory
 cp llamastudio.desktop ~/.local/share/applications/
 
-# 2. Copy the custom SVG icon to your local icons directory
+# 2. Copy the custom premium SVG icon to your local icons directory
 mkdir -p ~/.local/share/icons/hicolor/128x128/apps/
 cp llamastudio.svg ~/.local/share/icons/hicolor/128x128/apps/
 
@@ -61,65 +90,133 @@ cp llamastudio.svg ~/.local/share/icons/hicolor/128x128/apps/
 update-desktop-database ~/.local/share/applications/
 gtk-update-icon-cache -f -t ~/.local/share/icons
 ```
-*Note: The launcher is configured to run automatically using the conda environment Python at `/home/gnulnx/miniconda3/envs/llamastudio/bin/python`.*
+*Note: If you are using a virtualenv, edit the executable path inside `~/.local/share/applications/llamastudio.desktop` to point to your specific `.venv/bin/python` interpreter.*
 
 ---
 
-## 💻 Running the App
+### 🍏 2. macOS Installation
 
-### Via Desktop Menu (Pop!_OS / Ubuntu)
-Simply search for **LLamaStudio** in your Applications menu, or press the Super key and type "Lla". Click the icon to start the server and open the interface automatically.
+#### Prerequisites
+1. **Python 3.10+**
+2. **llama.cpp** installed globally via Homebrew (highly recommended for macOS):
+   ```bash
+   brew install llama.cpp
+   ```
+   *(This automatically places the `llama-server` binary globally on your system PATH, which LLamaStudio will auto-detect immediately!)*
+
+#### Environment Setup
+
+##### Option A: Conda / Miniconda (Recommended)
+```bash
+# 1. Clone the repository
+git clone https://github.com/gnulnx/LlamaStudio.git
+cd LlamaStudio
+
+# 2. Create and activate environment
+conda create -n llamastudio python=3.13 -y
+conda activate llamastudio
+
+# 3. Install requirements
+pip install -r requirements.txt
+```
+
+##### Option B: Python Virtualenv (`venv`)
+```bash
+# 1. Clone the repository
+git clone https://github.com/gnulnx/LlamaStudio.git
+cd LlamaStudio
+
+# 2. Create and activate venv
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install requirements
+pip install -r requirements.txt
+```
+
+---
+
+### 🪟 3. Windows Installation
+*Note: Native Windows execution is currently **untested**.* 
+However, you can run LLamaStudio on Windows seamlessly via **WSL2** (Windows Subsystem for Linux) by following the standard **Linux Installation** guide above.
+
+Pull requests extending native Windows support (e.g., resolving `.exe` binaries) are highly welcome!
+
+---
+
+## 🚀 Running the Application
 
 ### Via Command Line
-Activate your environment and run the startup script:
+Activate your virtual environment and run the startup script:
 ```bash
+# Activate your env (Conda)
 conda activate llamastudio
+# OR (Venv)
+source .venv/bin/activate
+
+# Start the application
 python start.py
 ```
-This will start the FastAPI backend on `http://127.0.0.1:8765` and automatically launch your default web browser to the chat dashboard.
+This will launch the FastAPI backend on `http://127.0.0.1:8765` and automatically open your default browser to the chat dashboard.
+
+### Via Application Menu (Linux)
+Search for **LLamaStudio** in your desktop search bar (press Super, type "Llama") and click to launch!
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration & Customization
 
-All major configurations can be found and edited in `app/config.py`:
-- `LLAMA_SERVER_BIN`: The absolute path to your `llama-server` binary.
-- `DEFAULT_MODEL`: The default GGUF model path to load if not specified.
-- `MODEL_DIRS`: A list of directories to scan for GGUF model files.
-- `APP_PORT`: The port the FastAPI web app runs on (defaults to `8765`).
+The application runs fully out-of-the-box with no manual configuration. However, you can customize default settings inside `app/config.py`:
+- `LLAMA_SERVER_BIN`: The absolute path to your `llama-server` binary (automatically resolved on PATH/home).
+- `MODEL_DIRS`: List of local directories to scan for GGUF model files (defaults to `~/.lmstudio/models`).
+- `APP_PORT`: FastAPI web server port (defaults to `8765`).
 
-```python
-# app/config.py excerpt
-LLAMA_SERVER_BIN: str = "/home/gnulnx/llama.cpp/build/bin/llama-server"
-MODEL_DIRS: list[str] = [
-    "/home/gnulnx/.lmstudio/models",
-]
+---
+
+## 🧪 Automated Unit Tests
+
+Verify your local installation and confirm backend routing stability by running our automated unit test suite:
+```bash
+# Ensure your environment is active
+python -m unittest tests/test_downloader.py
+```
+**Expected Output**:
+```text
+Ran 10 tests in 0.12s
+OK
 ```
 
 ---
 
-## 🏗️ Project Architecture
+## 🏗️ Project Structure
 
 ```
 LlamaStudio/
-├── start.py               # Main entrypoint (launches FastAPI + opens browser)
+├── start.py               # Main entrypoint (starts FastAPI + opens browser)
 ├── requirements.txt       # Declared python dependencies
-├── llamastudio.desktop    # GNOME/Linux desktop launcher
-├── llamastudio.svg        # Premium geometric custom application icon
+├── llamastudio.desktop    # GNOME/Linux desktop launcher metadata
+├── llamastudio.svg        # Custom application vector icon
 ├── app/
 │   ├── config.py          # Settings & dynamic path configurations
-│   ├── main.py            # FastAPI backend endpoints
-│   ├── chat.py            # Chat streaming, prompt templates & API connectors
-│   ├── model_manager.py   # Scans directories and parses GGUF files
-│   ├── server_manager.py  # Handles llama-server process lifecycle
-│   ├── logger.py          # Dedicated application logger
-│   ├── tools.py           # Sandboxed workspace tool integrations
+│   ├── main.py            # FastAPI backend endpoints & routing
+│   ├── chat.py            # Conversations registry, templates & chat streaming
+│   ├── downloader.py      # Async background download manager (chunked writes)
+│   ├── model_manager.py   # Scans local paths and Hugging Face Hub
+│   ├── server_manager.py  # llama-server subprocess process lifecycle controller
+│   ├── logger.py          # Centralized logger
+│   ├── tools.py           # Sandboxed local workspace tools for LLM agent use
 │   └── templates/
 │       └── index.html     # Interactive HTMX frontend interface
+├── tests/
+│   └── test_downloader.py # Comprehensive mocked test cases (100% passing)
+└── imgs/
+    ├── chat_interface.png # Screenshot: Main Chat interface
+    ├── model_settings.png # Screenshot: Model explorer & settings
+    └── discover_models.png# Screenshot: HF Discover & Downloader panel
 ```
 
 ---
 
 ## 📄 License
 
-This project is open-source and available under the MIT License.
+LLamaStudio is open-source software licensed under the [MIT License](LICENSE).
