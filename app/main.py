@@ -281,6 +281,7 @@ async def switch_conversation(conv_id: str):
             "role": m.role,
             "content": m.content,
             "timestamp": m.timestamp,
+            "reasoning": m.reasoning,
             "tool_calls": m.tool_calls,
             "tool_call_id": m.tool_call_id,
             "name": m.name
@@ -360,4 +361,3 @@ async def shutdown():
     """Stop llama-server when app shuts down."""
     logger.info("[LLamaStudio] Shutting down...")
     server.eject_model()
-

@@ -2933,12 +2933,15 @@
                 } else if (msg.role === 'assistant') {
                     let assistantHtml = '';
                     let textContent = msg.content || '';
-                    let thinkingContent = '';
+                    let thinkingContent = msg.reasoning || '';
                     
                     const thinkStart = textContent.indexOf('<think>');
                     const thinkEnd = textContent.indexOf('</think>');
                     if (thinkStart !== -1 && thinkEnd !== -1 && thinkEnd > thinkStart) {
-                        thinkingContent = textContent.substring(thinkStart + 7, thinkEnd);
+                        const legacyThinking = textContent.substring(thinkStart + 7, thinkEnd);
+                        thinkingContent = thinkingContent
+                            ? `${thinkingContent}\n\n${legacyThinking}`
+                            : legacyThinking;
                         textContent = textContent.substring(thinkEnd + 8);
                     }
                     
