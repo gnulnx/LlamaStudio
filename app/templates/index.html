@@ -3270,6 +3270,11 @@
                 `;
             }).join('');
 
+            // Automatically select the first model in the list
+            if (models.length > 0) {
+                selectHfModelRow(models[0].id);
+            }
+
         } catch(e) {
             tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation" style="margin-right:10px;"></i>Search failed: ${escapeHtml(e.message)}</td></tr>`;
         }
