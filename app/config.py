@@ -37,11 +37,32 @@ class Settings(BaseSettings):
     # Log file for llama-server output
     LOG_DIR: str = str(Path(__file__).parent.parent / "logs")
 
-    # Persistence files
-    CONVERSATIONS_FILE: str = str(Path(__file__).parent / "conversations.json")
-    MODEL_SETTINGS_FILE: str = str(Path(__file__).parent / "model_settings.json")
+    # Persistence files stored outside the repository in the user's config home
+    CONVERSATIONS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "conversations.json")
+    MODEL_SETTINGS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_settings.json")
 
     model_config = {"env_prefix": "LLAMASTUDIO_"}
+
+    @classmethod
+    def migrate_persistence_files(cls):
+        """Migrate any old persistence files from the app directory to ~/.config/llamastudio/"""
+        import shutil
+        old_dir = Path(__file__).parent
+        new_dir = Path.home() / ".config" / "llamastudio"
+        
+        for filename in ["conversations.json", "model_settings.json"]:
+            old_path = old_dir / filename
+            new_path = new_dir / filename
+            
+            if old_path.exists() and not new_path.exists():
+                try:
+                    new_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(old_path, new_path)
+                except Exception:
+                    pass
+
+# Run config migrations
+Settings.migrate_persistence_files()
 
 settings = Settings()
 
