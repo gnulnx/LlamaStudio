@@ -1781,7 +1781,7 @@
                         <div class="search-input-wrapper">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <input type="text" class="model-search" id="hfSearchInput" 
-                                   placeholder="Search Hugging Face Hub (GGUF models only)..." onkeydown="handleHfSearchKey(event)">
+                                   placeholder="Search Hugging Face Hub (GGUF models only)..." oninput="debouncedSearchHfModels()">
                         </div>
                         <button class="refresh-models-btn" onclick="searchHfModels()">
                             <i class="fa-solid fa-magnifying-glass"></i> Search
@@ -3203,10 +3203,15 @@
     let downloadEventSource = null;
     let selectedHfModelDetails = null;
 
-    function handleHfSearchKey(e) {
-        if (e.key === 'Enter') {
-            searchHfModels();
+    let hfSearchTimeout = null;
+
+    function debouncedSearchHfModels() {
+        if (hfSearchTimeout) {
+            clearTimeout(hfSearchTimeout);
         }
+        hfSearchTimeout = setTimeout(() => {
+            searchHfModels();
+        }, 500);
     }
 
     async function searchHfModels() {
