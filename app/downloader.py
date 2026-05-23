@@ -116,7 +116,7 @@ class ModelDownloader:
                     self.start_time = time.time()
                     
                     with open(tmp_path, "wb") as f:
-                        async for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                        async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
                             if self._cancel_event and self._cancel_event.is_set():
                                 logger.info("[downloader] Download cancelled during write chunk loop.")
                                 return
