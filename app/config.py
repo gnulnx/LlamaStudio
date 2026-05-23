@@ -6,16 +6,75 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 import shutil
 
-def resolve_llama_server_bin() -> str:
-    """Dynamically search for llama-server on PATH or standard local build directories."""
-    # 1. Check globally installed in system PATH (e.g. via brew on macOS, apt, or manual installation)
+def resolve_llama_server_bin(force_cpu: bool = False) -> str:
+    """Dynamically search for the best llama-server binary based on hardware and force_cpu setting."""
+    home = Path.home()
+    bin_root = home / "llama.cpp-bin"
+    
+    if force_cpu:
+        cpu_path = bin_root / "cpu" / "llama-server"
+        if cpu_path.exists():
+            return str(cpu_path)
+            
+    # Probing GPU vendor
+    vendor = "unknown"
+    for card_dir in ["card0", "card1", "card2"]:
+        vendor_path = Path(f"/sys/class/drm/{card_dir}/device/vendor")
+        if vendor_path.exists():
+            try:
+                vendor_id = vendor_path.read_text().strip().lower()
+                if "1002" in vendor_id:
+                    vendor = "amd"
+                    break
+                elif "10de" in vendor_id:
+                    vendor = "nvidia"
+                    break
+            except Exception:
+                pass
+                
+    if vendor == "unknown":
+        try:
+            import subprocess
+            lspci = subprocess.check_output("lspci", shell=True, text=True).lower()
+            if "nvidia" in lspci:
+                vendor = "nvidia"
+            elif "amd" in lspci or "ati" in lspci:
+                vendor = "amd"
+        except Exception:
+            pass
+
+    # Resolve based on vendor
+    if vendor == "nvidia" and not force_cpu:
+        cuda_path = bin_root / "cuda" / "llama-server"
+        if cuda_path.exists():
+            return str(cuda_path)
+        # Fallback to Vulkan if CUDA not found
+        vulkan_path = bin_root / "vulkan" / "llama-server"
+        if vulkan_path.exists():
+            return str(vulkan_path)
+            
+    elif vendor == "amd" and not force_cpu:
+        # Check ROCm first, then Vulkan
+        rocm_path = bin_root / "rocm" / "llama-server"
+        if rocm_path.exists():
+            return str(rocm_path)
+        vulkan_path = bin_root / "vulkan" / "llama-server"
+        if vulkan_path.exists():
+            return str(vulkan_path)
+
+    # Standard fallback path scans
+    if not force_cpu:
+        for folder in ["cuda", "rocm", "vulkan", "cpu"]:
+            p = bin_root / folder / "llama-server"
+            if p.exists():
+                return str(p)
+
+    # Check global PATH or custom build directories
     for binary in ["llama-server", "llama.cpp-server"]:
         resolved = shutil.which(binary)
         if resolved:
             return resolved
 
-    # 2. Check standard source build locations in user's home folder
-    home = Path.home()
     possible_paths = [
         home / "llama.cpp" / "build" / "bin" / "llama-server",
         home / "llama.cpp" / "llama-server",
@@ -24,7 +83,10 @@ def resolve_llama_server_bin() -> str:
         if p.exists():
             return str(p)
 
-    # 3. Fallback default path
+    fallback_cpu = bin_root / "cpu" / "llama-server"
+    if fallback_cpu.exists():
+        return str(fallback_cpu)
+
     return str(home / "llama.cpp" / "build" / "bin" / "llama-server")
 
 class Settings(BaseSettings):

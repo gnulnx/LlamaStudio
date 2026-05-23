@@ -70,13 +70,13 @@ class ServerManager:
             time.sleep(1)
         return False
 
-    def _build_command(self, model_path: str, params: dict = None) -> list:
+    def _build_command(self, model_path: str, params: dict = None, force_cpu: bool = False) -> list:
         if params is None:
             params = {}
 
         # Merge input params with default settings
         ctx_size = params.get("ctx_size", settings.LLAMA_SERVER_CTX_SIZE)
-        gpu_layers = params.get("gpu_layers", settings.LLAMA_SERVER_GPU_LAYERS)
+        gpu_layers = 0 if force_cpu else params.get("gpu_layers", settings.LLAMA_SERVER_GPU_LAYERS)
         flash_attn = params.get("flash_attn", settings.LLAMA_SERVER_FLASH_ATTN)
         kv_cache_type = params.get("kv_cache_type", settings.LLAMA_SERVER_KV_CACHE_TYPE)
         vocab_type = params.get("vocab_type", settings.LLAMA_SERVER_VOCAB_TYPE)
@@ -86,8 +86,11 @@ class ServerManager:
         rope_freq_base = params.get("rope_freq_base", 0.0)
         rope_freq_scale = params.get("rope_freq_scale", 0.0)
 
+        from .config import resolve_llama_server_bin
+        binary_path = resolve_llama_server_bin(force_cpu=force_cpu)
+
         cmd = [
-            settings.LLAMA_SERVER_BIN,
+            binary_path,
             "-m", model_path,
             "--port", str(settings.LLAMA_SERVER_PORT),
             "--ctx-size", str(ctx_size),
@@ -156,6 +159,10 @@ class ServerManager:
         """Load a model. If one is already loaded, eject it first."""
         model = model_path
         log_file = self._write_log()
+        params = params or {}
+
+        # Determine initial cpu mode from params
+        cpu_mode = params.get("cpu_mode", False) or int(params.get("gpu_layers", 999)) == 0
 
         try:
             if not Path(model).exists():
@@ -171,10 +178,10 @@ class ServerManager:
 
             self._current_model = model
             self._current_model_name = Path(model).stem
-            self._current_params = params or {}
+            self._current_params = params
             self._is_loading = True
 
-            cmd = self._build_command(model, params)
+            cmd = self._build_command(model, params, force_cpu=cpu_mode)
 
             logger.info(f"[server] Loading: {model} with cmd: {' '.join(cmd)}")
             with open(log_file, "w") as f:
@@ -186,25 +193,63 @@ class ServerManager:
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
-                    cwd=Path(settings.LLAMA_SERVER_BIN).parent,
+                    cwd=Path(cmd[0]).parent,
                 )
 
             if self._wait_for_ready():
                 logger.info(f"[server] Model loaded: {self._current_model_name}")
                 self._is_loading = False
                 return True
-            else:
-                error_msg = "[server] Timed out waiting for llama-server to become ready."
-                logger.error(error_msg)
+            
+            # AUTOMATIC FALLBACK LOGIC
+            # If startup failed and we were NOT in CPU mode, try starting in CPU Mode as a fallback!
+            if not cpu_mode:
+                logger.warning("[server] GPU loading failed or timed out. Attempting automatic CPU fallback...")
                 with open(log_file, "a") as f:
-                    f.write(f"\nERROR: {error_msg}\n")
-                    f.write("DEBUG INFO:\n")
-                    f.write("- Port 1234 might be blocked or in use by another zombie process.\n")
-                    f.write("- Model configuration parameters (e.g. context size, thread count) might exceed system capability.\n")
-                    f.write("- GPU out-of-memory: Check if the GGUF model is too large for the 32GB VRAM offload.\n")
-                self._is_loading = False
+                    f.write("\n[WARNING] GPU load failed. Triggering automatic CPU Fallback...\n\n")
+                
                 self.eject_model()
-                return False
+                self._current_model = model
+                self._current_model_name = Path(model).stem
+                self._current_params = params
+                self._is_loading = True
+                
+                # Build fallback command with force_cpu=True
+                cmd_fallback = self._build_command(model, params, force_cpu=True)
+                logger.info(f"[server] Loading fallback: {model} with cmd: {' '.join(cmd_fallback)}")
+                
+                with open(log_file, "a") as f:
+                    f.write("--- Triggering CPU Fallback Server ---\n")
+                    f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
+                    f.flush()
+                    
+                self._process = subprocess.Popen(
+                    cmd_fallback,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    cwd=Path(cmd_fallback[0]).parent,
+                )
+                
+                if self._wait_for_ready():
+                    logger.info(f"[server] Model loaded successfully via CPU Fallback: {self._current_model_name}")
+                    # Update parameters to reflect CPU mode was used
+                    self._current_params["cpu_mode"] = True
+                    self._current_params["gpu_layers"] = 0
+                    self._is_loading = False
+                    return True
+
+            # If we get here, both GPU and fallback (or CPU alone) failed
+            error_msg = "[server] Timed out waiting for llama-server to become ready."
+            logger.error(error_msg)
+            with open(log_file, "a") as f:
+                f.write(f"\nERROR: {error_msg}\n")
+                f.write("DEBUG INFO:\n")
+                f.write("- Port 1234 might be blocked or in use by another zombie process.\n")
+                f.write("- Model configuration parameters (e.g. context size, thread count) might exceed system capability.\n")
+                f.write("- GPU out-of-memory: Check if the GGUF model is too large for the 32GB VRAM offload.\n")
+            self._is_loading = False
+            self.eject_model()
+            return False
 
         except Exception as e:
             import traceback

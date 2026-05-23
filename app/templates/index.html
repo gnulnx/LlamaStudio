@@ -1746,6 +1746,17 @@
                             </label>
                         </div>
 
+                        <div class="toggle-row">
+                            <div>
+                                <span class="control-label">CPU Mode Only</span>
+                                <div class="control-sublabel">Force running strictly on host CPU</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="param-cpu-mode">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
                         <!-- Cache configurations -->
                         <div class="control-group">
                             <label class="control-label">K Cache Quant</label>
@@ -2497,6 +2508,7 @@
         
         document.getElementById('param-flash').checked = settings.flash_attn !== undefined ? settings.flash_attn : true;
         document.getElementById('param-mmap').checked = settings.mmap !== undefined ? settings.mmap : true;
+        document.getElementById('param-cpu-mode').checked = settings.cpu_mode !== undefined ? settings.cpu_mode : false;
         document.getElementById('param-ctk').value = settings.kv_cache_type || 'q8_0';
         document.getElementById('param-ctv').value = settings.vocab_type || 'q8_0';
         document.getElementById('param-seed').value = settings.seed !== undefined ? settings.seed : -1;
@@ -2582,6 +2594,7 @@
             threads: parseInt(document.getElementById('param-threads').value),
             flash_attn: document.getElementById('param-flash').checked,
             mmap: document.getElementById('param-mmap').checked,
+            cpu_mode: document.getElementById('param-cpu-mode').checked,
             kv_cache_type: document.getElementById('param-ctk').value,
             vocab_type: document.getElementById('param-ctv').value,
             seed: parseInt(document.getElementById('param-seed').value),
