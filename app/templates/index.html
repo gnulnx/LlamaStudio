@@ -1383,6 +1383,10 @@
                 <i class="fa-regular fa-comment-dots"></i>
                 <span>Chat</span>
             </button>
+            <button class="nav-btn" id="btn-discover" onclick="switchView('discover')">
+                <i class="fa-solid fa-compass"></i>
+                <span>Discover</span>
+            </button>
             <button class="nav-btn" id="btn-models" onclick="switchView('models')">
                 <i class="fa-solid fa-box-archive"></i>
                 <span>Models</span>
@@ -1768,6 +1772,85 @@
             </div>
         </div>
 
+        <!-- ─── DISCOVER VIEW ─── -->
+        <div class="view-panel" id="view-discover">
+            <div class="models-pane">
+                <!-- Left Search & Results List -->
+                <div class="models-list-container">
+                    <div class="models-search-bar" style="gap: 16px;">
+                        <div class="search-input-wrapper">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" class="model-search" id="hfSearchInput" 
+                                   placeholder="Search Hugging Face Hub (GGUF models only)..." onkeydown="handleHfSearchKey(event)">
+                        </div>
+                        <button class="refresh-models-btn" onclick="searchHfModels()">
+                            <i class="fa-solid fa-magnifying-glass"></i> Search
+                        </button>
+                        <select class="control-input" id="hfSortSelect" style="width: auto; height: 38px; padding: 0 12px; background: var(--bg-input); border: 1px solid var(--border);" onchange="searchHfModels()">
+                            <option value="downloads">Most Downloads</option>
+                            <option value="likes">Most Likes</option>
+                            <option value="modified">Recently Updated</option>
+                        </select>
+                    </div>
+                    <div class="models-table-wrapper" id="hfResultsWrapper">
+                        <!-- Intro empty state -->
+                        <div id="hfDiscoverIntro" style="text-align: center; padding: 80px 40px; color: var(--text-secondary);">
+                            <i class="fa-solid fa-compass" style="font-size: 48px; color: var(--accent); margin-bottom: 20px; text-shadow: 0 0 20px var(--accent-glow);"></i>
+                            <h3 style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">Explore Open Source LLMs</h3>
+                            <p style="font-size: 14px; max-width: 480px; margin: 0 auto; line-height: 1.6;">Search the Hugging Face Hub for community-quantized GGUF models. Download them directly with a single click.</p>
+                        </div>
+                        <table class="models-table" id="hfResultsTable" style="display: none;">
+                            <thead>
+                                <tr>
+                                    <th>Model Name</th>
+                                    <th>Author</th>
+                                    <th>Downloads</th>
+                                    <th>Likes</th>
+                                    <th>Capabilities</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hfResultsTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Right Model Card / Details Sidebar Pane -->
+                <div class="config-sidebar" id="hfDetailsSidebar" style="display: none; width: 420px;">
+                    <div class="config-sidebar-header" style="border-bottom: 1px solid var(--border); padding-bottom: 16px;">
+                        <div class="config-sidebar-title" id="hfSelectedModelName" style="white-space: normal; line-height: 1.4; font-size: 15px; font-weight: 700;">gemma-2-9b-it-GGUF</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;" id="hfSelectedModelRepo">google/gemma-2-9b-it-GGUF</div>
+                        
+                        <!-- Selection & VRAM Estimator -->
+                        <div class="control-group" style="margin-top: 16px;">
+                            <label class="control-label">Select Quantization (.gguf)</label>
+                            <select class="control-input" id="hfQuantSelect" onchange="evaluateVramEstimate()"></select>
+                        </div>
+                        
+                        <!-- Smart VRAM / RTX 5090 Suitability Badges -->
+                        <div id="hfVramEstimator" style="margin-top: 12px; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-direction: column; width: 100%;">
+                            <!-- Will be updated dynamically -->
+                        </div>
+                        
+                        <div class="config-cta-btns" style="margin-top: 16px;">
+                            <button class="sidebar-action-btn primary" id="hfDownloadBtn" onclick="triggerModelDownload()">
+                                <i class="fa-solid fa-download"></i> Download GGUF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-tabs-header">
+                        <button class="settings-tab-btn active" style="flex: 1; text-align: center;" id="tabBtn-hfReadme">Model README</button>
+                    </div>
+
+                    <div class="settings-tab-content active" id="settingsTab-hfReadme" style="padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--text-secondary); height: calc(100vh - 430px);">
+                        <div id="hfReadmeContent" class="markdown-body">Loading README...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ─── LOGS VIEW ─── -->
         <div class="view-panel" id="view-logs">
             <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); padding: 24px; overflow: hidden; height: 100%; width: 100%;">
@@ -1923,6 +2006,9 @@
         
         // Initial setup for empty states
         refreshChatEmptyState();
+        
+        // Check active HF downloads
+        checkActiveDownloads();
 
         // Apply running model inference settings to global inputs if running
         if (isServerRunning && loadedModelPath) {
@@ -3103,7 +3189,397 @@
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // ─── HUGGING FACE MODEL SEARCH & DOWNLOADS ─────────────────
+    let activeDownloadRepo = null;
+    let activeDownloadFile = null;
+    let downloadEventSource = null;
+    let selectedHfModelDetails = null;
+
+    function handleHfSearchKey(e) {
+        if (e.key === 'Enter') {
+            searchHfModels();
+        }
+    }
+
+    async function searchHfModels() {
+        const query = document.getElementById('hfSearchInput').value.trim();
+        if (!query) {
+            alert("Please enter a search query.");
+            return;
+        }
+
+        const sort = document.getElementById('hfSortSelect').value;
+        const intro = document.getElementById('hfDiscoverIntro');
+        const table = document.getElementById('hfResultsTable');
+        const tbody = document.getElementById('hfResultsTableBody');
+
+        if (intro) intro.style.display = "none";
+        if (table) table.style.display = "none";
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin fa-xl" style="color:var(--accent);margin-right:10px;"></i>Searching Hugging Face...</td></tr>`;
+        table.style.display = "table";
+
+        try {
+            const res = await fetch(`/api/models/search?q=${encodeURIComponent(query)}&sort=${sort}`);
+            const data = await res.json();
+            const models = data.models || [];
+
+            if (models.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);">No models found matching "${escapeHtml(query)}"</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = models.map(m => {
+                const author = m.author || 'unknown';
+                const downloads = m.downloads !== undefined ? m.downloads.toLocaleString() : '0';
+                const likes = m.likes !== undefined ? m.likes.toLocaleString() : '0';
+                
+                // Capabilities detection based on tags and pipeline_tag
+                let caps = [];
+                const tags = m.tags || [];
+                const pipeline = m.pipeline_tag || '';
+                
+                if (tags.includes('vision') || tags.includes('multimodal') || pipeline.includes('image')) {
+                    caps.push('<span class="badge" style="background: rgba(127, 90, 240, 0.1); color: var(--accent-hover); border-color: rgba(127, 90, 240, 0.2); margin-right:4px;">Vision</span>');
+                }
+                if (tags.includes('reasoning') || pipeline.includes('reasoning') || m.id.toLowerCase().includes('deepseek-r1') || m.id.toLowerCase().includes('qwq')) {
+                    caps.push('<span class="badge" style="background: rgba(46, 204, 113, 0.1); color: #2ecc71; border-color: rgba(46, 204, 113, 0.2); margin-right:4px;">Reasoning</span>');
+                }
+                if (tags.includes('tools') || tags.includes('tool-use') || tags.includes('function-calling') || m.id.toLowerCase().includes('gemma') || m.id.toLowerCase().includes('qwen')) {
+                    caps.push('<span class="badge" style="background: rgba(241, 196, 15, 0.1); color: #f1c40f; border-color: rgba(241, 196, 15, 0.2); margin-right:4px;">Tool Use</span>');
+                }
+
+                if (caps.length === 0) {
+                    caps.push('<span class="badge">Text</span>');
+                }
+
+                // Selected row styling class
+                const isSelected = selectedHfModelDetails && selectedHfModelDetails.id === m.id;
+
+                return `
+                    <tr id="hf-row-${btoa(m.id)}" onclick="selectHfModelRow('${escapeHtml(m.id)}')" class="${isSelected ? 'selected' : ''}">
+                        <td style="font-weight:600;color:var(--text-primary);">${escapeHtml(m.id.split('/').pop())}</td>
+                        <td>${escapeHtml(author)}</td>
+                        <td><i class="fa-solid fa-download" style="font-size:11px;color:var(--text-muted);margin-right:4px;"></i>${downloads}</td>
+                        <td><i class="fa-regular fa-heart" style="font-size:11px;color:var(--text-muted);margin-right:4px;"></i>${likes}</td>
+                        <td style="display:flex;gap:4px;flex-wrap:wrap;">${caps.join('')}</td>
+                    </tr>
+                `;
+            }).join('');
+
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation" style="margin-right:10px;"></i>Search failed: ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+
+    async function selectHfModelRow(repoId) {
+        // Highlight row
+        document.querySelectorAll('#hfResultsTableBody tr').forEach(r => r.classList.remove('selected'));
+        const row = document.getElementById(`hf-row-${btoa(repoId)}`);
+        if (row) row.classList.add('selected');
+
+        const sidebar = document.getElementById('hfDetailsSidebar');
+        const readmeContent = document.getElementById('hfReadmeContent');
+        
+        sidebar.style.display = "flex";
+        readmeContent.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="margin-right:8px;"></i>Loading model details and README...`;
+
+        try {
+            const res = await fetch(`/api/models/hf-details?repo_id=${encodeURIComponent(repoId)}`);
+            if (!res.ok) {
+                readmeContent.innerHTML = `<span style="color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation"></i> Failed to retrieve details for ${repoId}</span>`;
+                return;
+            }
+            const data = await res.json();
+            selectedHfModelDetails = data.details;
+
+            document.getElementById('hfSelectedModelName').textContent = repoId.split('/').pop();
+            document.getElementById('hfSelectedModelRepo').textContent = repoId;
+
+            // Render Markdown readme
+            readmeContent.innerHTML = marked.parse(data.readme);
+
+            // Populate quant select
+            const quantSelect = document.getElementById('hfQuantSelect');
+            quantSelect.innerHTML = '';
+
+            // Find all files ending in .gguf
+            const siblings = selectedHfModelDetails.siblings || [];
+            const ggufFiles = siblings.filter(s => s.rpath && s.rpath.toLowerCase().endsWith('.gguf'));
+
+            if (ggufFiles.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.textContent = "No GGUF files found in repository";
+                quantSelect.appendChild(opt);
+                document.getElementById('hfDownloadBtn').disabled = true;
+                document.getElementById('hfVramEstimator').innerHTML = `
+                    <span style="background: rgba(231, 76, 60, 0.15); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.3); padding: 8px 12px; border-radius: 6px; font-weight: 600; width: 100%; text-align: center;">
+                        <i class="fa-solid fa-circle-xmark"></i> Repository has no GGUF files
+                    </span>
+                `;
+                return;
+            }
+
+            document.getElementById('hfDownloadBtn').disabled = false;
+
+            // Sort GGUF files by name
+            ggufFiles.sort((a, b) => a.rpath.localeCompare(b.rpath));
+
+            ggufFiles.forEach(f => {
+                const option = document.createElement('option');
+                option.value = f.rpath;
+                option.textContent = f.rpath;
+                quantSelect.appendChild(option);
+            });
+
+            // Trigger VRAM evaluation
+            evaluateVramEstimate();
+
+        } catch(e) {
+            readmeContent.innerHTML = `<span style="color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation"></i> Error loading details: ${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function evaluateVramEstimate() {
+        const repo = document.getElementById('hfSelectedModelRepo').textContent;
+        const file = document.getElementById('hfQuantSelect').value;
+        const badgeContainer = document.getElementById('hfVramEstimator');
+
+        if (!selectedHfModelDetails || !file) {
+            badgeContainer.innerHTML = '';
+            return;
+        }
+
+        let sizeGb = 0.0;
+        
+        const siblings = selectedHfModelDetails.siblings || [];
+        const found = siblings.find(s => s.rpath === file);
+        if (found && found.size) {
+            sizeGb = found.size / (1024 * 1024 * 1024);
+        } else {
+            const lowerFile = file.toLowerCase();
+            const paramMatch = repo.match(/(\d+b|\d+\.?\d+b)/i) || file.match(/(\d+b|\d+\.?\d+b)/i);
+            let params = 8;
+            if (paramMatch) {
+                params = parseFloat(paramMatch[0]);
+            }
+            
+            if (lowerFile.includes('q4_k_m') || lowerFile.includes('q4_0') || lowerFile.includes('q4_k_s')) {
+                sizeGb = params * 0.55;
+            } else if (lowerFile.includes('q8_0') || lowerFile.includes('q8_k')) {
+                sizeGb = params * 0.95;
+            } else if (lowerFile.includes('q5_k_m') || lowerFile.includes('q5_0')) {
+                sizeGb = params * 0.65;
+            } else {
+                sizeGb = params * 0.50;
+            }
+        }
+
+        const sizeFormatted = sizeGb.toFixed(1) + " GB";
+
+        if (sizeGb + 4.0 <= 32.0) {
+            badgeContainer.innerHTML = `
+                <div style="background: rgba(46, 204, 113, 0.12); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
+                    <i class="fa-solid fa-circle-check" style="font-size: 14px;"></i>
+                    <span>Fits Fully on RTX 5090 (${sizeFormatted} GGUF)</span>
+                </div>
+            `;
+        } else if (sizeGb < 32.0) {
+            badgeContainer.innerHTML = `
+                <div style="background: rgba(241, 196, 15, 0.12); color: #f1c40f; border: 1px solid rgba(241, 196, 15, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 14px;"></i>
+                    <span>Partial Offload / Large KV needed (${sizeFormatted})</span>
+                </div>
+            `;
+        } else {
+            badgeContainer.innerHTML = `
+                <div style="background: rgba(231, 76, 60, 0.12); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
+                    <i class="fa-solid fa-circle-xmark" style="font-size: 14px;"></i>
+                    <span>Exceeds 32GB VRAM - Heavy CPU Fallback (${sizeFormatted})</span>
+                </div>
+            `;
+        }
+    }
+
+    async function triggerModelDownload() {
+        const repo = document.getElementById('hfSelectedModelRepo').textContent;
+        const file = document.getElementById('hfQuantSelect').value;
+
+        if (!repo || !file) {
+            alert("No model or file selected.");
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/models/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    repo_id: repo,
+                    filename: file
+                })
+            });
+
+            if (res.status === 499 || res.status === 409) {
+                alert("A model download is already running in the background. Please wait or cancel the active download.");
+                return;
+            }
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert(`Failed to start download: ${err.detail || 'unknown error'}`);
+                return;
+            }
+
+            startProgressTracking(repo, file);
+            showNotification("Download Started", `Downloading ${file} in the background.`);
+
+        } catch(e) {
+            alert(`Network error starting download: ${e.message}`);
+        }
+    }
+
+    function startProgressTracking(repo, file) {
+        activeDownloadRepo = repo;
+        activeDownloadFile = file;
+
+        document.getElementById('dlCardFilename').textContent = file;
+        document.getElementById('dlCardRepo').textContent = repo;
+        document.getElementById('dlCardProgressBar').style.width = '0%';
+        document.getElementById('dlCardPercent').textContent = '0%';
+        document.getElementById('dlCardSizeProgress').textContent = '(0MB / 0MB)';
+        document.getElementById('dlCardSpeed').textContent = '0.0 MB/s';
+        document.getElementById('dlCardEta').textContent = 'ETA: 0s';
+        document.getElementById('downloadProgressCard').style.display = 'block';
+
+        if (downloadEventSource) {
+            downloadEventSource.close();
+        }
+
+        downloadEventSource = new EventSource('/api/models/download/progress');
+        
+        downloadEventSource.onmessage = function(e) {
+            try {
+                const data = JSON.parse(e.data);
+                
+                if (data.status === 'idle') {
+                    downloadEventSource.close();
+                    document.getElementById('downloadProgressCard').style.display = 'none';
+                    return;
+                }
+
+                if (data.status === 'downloading') {
+                    const dlMb = (data.downloaded_bytes / (1024 * 1024)).toFixed(0);
+                    const totMb = (data.total_bytes / (1024 * 1024)).toFixed(0);
+                    
+                    document.getElementById('dlCardProgressBar').style.width = `${data.percent}%`;
+                    document.getElementById('dlCardPercent').textContent = `${data.percent}%`;
+                    document.getElementById('dlCardSizeProgress').textContent = `(${dlMb}MB / ${totMb}MB)`;
+                    document.getElementById('dlCardSpeed').textContent = `${data.speed_mb} MB/s`;
+                    
+                    const etaSeconds = data.eta_seconds || 0;
+                    let etaText = `${etaSeconds}s`;
+                    if (etaSeconds > 60) {
+                        const mins = Math.floor(etaSeconds / 60);
+                        const secs = etaSeconds % 60;
+                        etaText = `${mins}m ${secs}s`;
+                    }
+                    document.getElementById('dlCardEta').textContent = `ETA: ${etaText}`;
+                } else if (data.status === 'completed') {
+                    downloadEventSource.close();
+                    document.getElementById('dlCardProgressBar').style.width = '100%';
+                    document.getElementById('dlCardPercent').textContent = '100%';
+                    setTimeout(() => {
+                        document.getElementById('downloadProgressCard').style.display = 'none';
+                    }, 4000);
+                    showNotification("Download Complete", `${file} downloaded successfully. Refreshing model catalog.`);
+                    rescanModels();
+                } else if (data.status === 'failed') {
+                    downloadEventSource.close();
+                    alert(`Download failed: ${data.error || 'unknown server issue'}`);
+                    document.getElementById('downloadProgressCard').style.display = 'none';
+                } else if (data.status === 'cancelled') {
+                    downloadEventSource.close();
+                    document.getElementById('downloadProgressCard').style.display = 'none';
+                }
+            } catch(err) {
+                console.error("Error parsing progress chunk", err);
+            }
+        };
+
+        downloadEventSource.onerror = function() {
+            console.warn("Progress EventSource disconnected. Re-checking status...");
+            downloadEventSource.close();
+            setTimeout(checkActiveDownloads, 3000);
+        };
+    }
+
+    async function triggerCancelDownload() {
+        if (!confirm("Are you sure you want to cancel the active download? This will delete the temporary file.")) return;
+        try {
+            const res = await fetch('/api/models/download/cancel', { method: 'POST' });
+            if (res.ok) {
+                if (downloadEventSource) downloadEventSource.close();
+                document.getElementById('downloadProgressCard').style.display = 'none';
+                showNotification("Download Cancelled", "Model download terminated.");
+            }
+        } catch(e) {
+            alert("Cancellation request failed.");
+        }
+    }
+
+    async function checkActiveDownloads() {
+        try {
+            const res = await fetch('/api/models/download/active');
+            const data = await res.json();
+            if (data.active && data.progress) {
+                const prog = data.progress;
+                startProgressTracking(prog.repo_id, prog.filename);
+            }
+        } catch(e) {
+            console.error("Failed to check active downloads", e);
+        }
+    }
 </script>
+
+<!-- Floating Download Progress Card (Bottom Right) -->
+<div id="downloadProgressCard" style="display: none; position: fixed; bottom: 24px; right: 24px; width: 340px; background: var(--bg-secondary); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); padding: 16px; z-index: 1000; animation: slideIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+        <div style="flex: 1; overflow: hidden; padding-right: 8px;">
+            <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--accent-hover); letter-spacing: 0.5px; margin-bottom: 2px;">Downloading Model</div>
+            <div id="dlCardFilename" style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">model.gguf</div>
+            <div id="dlCardRepo" style="font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">author/repo</div>
+        </div>
+        <button onclick="triggerCancelDownload()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.15s;" onmouseover="this.style.color='var(--status-red)'" onmouseout="this.style.color='var(--text-muted)'">
+            <i class="fa-solid fa-circle-xmark" style="font-size: 16px;"></i>
+        </button>
+    </div>
+    
+    <!-- Progress Bar -->
+    <div style="width: 100%; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; margin-bottom: 10px;">
+        <div id="dlCardProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); transition: width 0.2s ease;"></div>
+    </div>
+    
+    <!-- Progress Details -->
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--text-secondary);">
+        <div>
+            <span id="dlCardPercent">0%</span>
+            <span id="dlCardSizeProgress" style="color: var(--text-muted); margin-left: 4px;">(0MB / 0MB)</span>
+        </div>
+        <div style="text-align: right;">
+            <span id="dlCardSpeed">0.0 MB/s</span>
+            <span id="dlCardEta" style="color: var(--text-muted); margin-left: 6px;">ETA: 0s</span>
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes slideIn {
+    from { transform: translateY(40px) scale(0.95); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+</style>
 
 </body>
 </html>
