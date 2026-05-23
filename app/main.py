@@ -179,7 +179,7 @@ async def refresh_models():
 import asyncio
 
 @app.get("/api/models/search")
-async def search_models(q: str, sort: str = "downloads"):
+async def search_models(q: str = "", sort: str = "downloads"):
     """Search Hugging Face GGUF models."""
     from .model_manager import search_huggingface_models
     results = await search_huggingface_models(q, sort)

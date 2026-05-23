@@ -1787,8 +1787,8 @@
                             <i class="fa-solid fa-magnifying-glass"></i> Search
                         </button>
                         <select class="control-input" id="hfSortSelect" style="width: auto; height: 38px; padding: 0 12px; background: var(--bg-input); border: 1px solid var(--border);" onchange="searchHfModels()">
+                            <option value="likes" selected>Most Likes</option>
                             <option value="downloads">Most Downloads</option>
-                            <option value="likes">Most Likes</option>
                             <option value="modified">Recently Updated</option>
                         </select>
                     </div>
@@ -2081,6 +2081,13 @@
         if (viewName === 'chat') {
             refreshChatEmptyState();
             scrollToMessagesBottom();
+        }
+
+        if (viewName === 'discover') {
+            const tbody = document.getElementById('hfResultsTableBody');
+            if (tbody && tbody.children.length === 0) {
+                searchHfModels();
+            }
         }
 
         // Real-time logs polling
@@ -3204,10 +3211,6 @@
 
     async function searchHfModels() {
         const query = document.getElementById('hfSearchInput').value.trim();
-        if (!query) {
-            alert("Please enter a search query.");
-            return;
-        }
 
         const sort = document.getElementById('hfSortSelect').value;
         const intro = document.getElementById('hfDiscoverIntro');
