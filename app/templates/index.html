@@ -3305,7 +3305,7 @@
 
             // Find all files ending in .gguf
             const siblings = selectedHfModelDetails.siblings || [];
-            const ggufFiles = siblings.filter(s => s.rpath && s.rpath.toLowerCase().endsWith('.gguf'));
+            const ggufFiles = siblings.filter(s => s.rfilename && s.rfilename.toLowerCase().endsWith('.gguf'));
 
             if (ggufFiles.length === 0) {
                 const opt = document.createElement('option');
@@ -3324,12 +3324,12 @@
             document.getElementById('hfDownloadBtn').disabled = false;
 
             // Sort GGUF files by name
-            ggufFiles.sort((a, b) => a.rpath.localeCompare(b.rpath));
+            ggufFiles.sort((a, b) => a.rfilename.localeCompare(b.rfilename));
 
             ggufFiles.forEach(f => {
                 const option = document.createElement('option');
-                option.value = f.rpath;
-                option.textContent = f.rpath;
+                option.value = f.rfilename;
+                option.textContent = f.rfilename;
                 quantSelect.appendChild(option);
             });
 
@@ -3354,7 +3354,7 @@
         let sizeGb = 0.0;
         
         const siblings = selectedHfModelDetails.siblings || [];
-        const found = siblings.find(s => s.rpath === file);
+        const found = siblings.find(s => s.rfilename === file);
         if (found && found.size) {
             sizeGb = found.size / (1024 * 1024 * 1024);
         } else {
