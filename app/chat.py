@@ -164,7 +164,9 @@ class ChatManager:
 
     def stream_chat(self, user_message: str | None = None, temperature: float = None,
                     top_p: float = None, max_tokens: int = None,
-                    system_prompt: str = None) -> Generator[str, None, None]:
+                    system_prompt: str = None, top_k: int = None,
+                    min_p: float = None, repeat_penalty: float = None,
+                    stop: list[str] = None) -> Generator[str, None, None]:
         """Send a message to llama-server and stream the response, automatically executing tools if requested."""
         from .tools import ALL_TOOLS, execute_tool
 
@@ -198,12 +200,20 @@ class ChatManager:
             payload = {
                 "messages": messages,
                 "stream": True,
-                "temperature": temperature or settings.DEFAULT_TEMPERATURE,
-                "top_p": top_p or settings.DEFAULT_TOP_P,
-                "max_tokens": max_tokens or settings.DEFAULT_MAX_TOKENS,
+                "temperature": temperature if temperature is not None else settings.DEFAULT_TEMPERATURE,
+                "top_p": top_p if top_p is not None else settings.DEFAULT_TOP_P,
+                "max_tokens": max_tokens if max_tokens is not None else settings.DEFAULT_MAX_TOKENS,
                 "tools": ALL_TOOLS,
                 "tool_choice": "auto"
             }
+            if top_k is not None:
+                payload["top_k"] = top_k
+            if min_p is not None:
+                payload["min_p"] = min_p
+            if repeat_penalty is not None:
+                payload["repeat_penalty"] = repeat_penalty
+            if stop:
+                payload["stop"] = stop
 
             assistant_text = ""
             reasoning_text = ""
@@ -270,6 +280,70 @@ class ChatManager:
 
                             except json.JSONDecodeError:
                                 continue
+
+                # Check for custom text-based tool calls in the generated content (e.g. Gemma inline tool calls)
+                if not tool_calls_accumulated and assistant_text:
+                    import ast
+                    import re
+                    def parse_args_str(args_str: str) -> dict:
+                        try:
+                            tree = ast.parse(f"dummy({args_str})")
+                            args = {}
+                            for node in ast.walk(tree):
+                                if isinstance(node, ast.Call):
+                                    for kw in node.keywords:
+                                        if hasattr(kw.value, 'value'):
+                                            args[kw.arg] = kw.value.value
+                                        elif hasattr(kw.value, 's'):
+                                            args[kw.arg] = kw.value.s
+                                        elif hasattr(kw.value, 'n'):
+                                            args[kw.arg] = kw.value.n
+                            return args
+                        except Exception:
+                            # Fallback regex
+                            args = {}
+                            matches = re.findall(r'(\w+)\s*=\s*(?:"(.*?)"|\'(.*?)\')', args_str, re.DOTALL)
+                            for m in matches:
+                                kw = m[0]
+                                val = m[1] if m[1] else m[2]
+                                args[kw] = val
+                            return args
+
+                    # Match <|tool_call>call:tool_name(args)<tool_call|>
+                    matches = list(re.finditer(r'<\|tool_call>call:(\w+)\((.*?)\)<tool_call\|>', assistant_text, re.DOTALL))
+                    if matches:
+                        for m in matches:
+                            tool_name = m.group(1)
+                            args_str = m.group(2)
+                            args_dict = parse_args_str(args_str)
+                            
+                            # Map parameters (Gemma "filename" -> "file_path")
+                            if "filename" in args_dict and "file_path" not in args_dict:
+                                args_dict["file_path"] = args_dict.pop("filename")
+                                
+                            tc_id = f"call_{uuid.uuid4().hex[:8]}"
+                            tool_calls_accumulated.append({
+                                "id": tc_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(args_dict)
+                                }
+                            })
+                            
+                            # Clean up the tool call markup from the printed assistant text
+                            assistant_text = assistant_text.replace(m.group(0), "").strip()
+                            
+                            # Notify frontend dynamically that a tool call was detected
+                            yield f"data: {json.dumps({'tool_call_delta': {
+                                'index': len(tool_calls_accumulated) - 1,
+                                'id': tc_id,
+                                'type': 'function',
+                                'function': {
+                                    'name': tool_name,
+                                    'arguments': json.dumps(args_dict)
+                                }
+                            }})}\n\n"
 
                 # Post-processing assistant output
                 if tool_calls_accumulated:

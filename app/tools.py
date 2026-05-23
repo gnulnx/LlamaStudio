@@ -76,6 +76,15 @@ def list_dir(dir_path: str = ".") -> str:
         logger.error(f"[tools] Error in list_dir: {e}")
         return f"Error executing list_dir: {e}"
 
+def get_absolute_path(file_path: str = ".") -> str:
+    """Return the absolute system path of a file or directory in the workspace directory."""
+    try:
+        safe_path = check_path_safe(file_path)
+        return str(safe_path)
+    except Exception as e:
+        logger.error(f"[tools] Error in get_absolute_path: {e}")
+        return f"Error executing get_absolute_path: {e}"
+
 def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
     try:
@@ -175,6 +184,22 @@ ALL_TOOLS = [
                 "required": ["command"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_absolute_path",
+            "description": "Return the absolute system path of a file or directory in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path to resolve (relative to workspace). Defaults to '.' for workspace root."
+                    }
+                }
+            }
+        }
     }
 ]
 
@@ -188,5 +213,8 @@ def execute_tool(name: str, arguments: dict) -> str:
         return list_dir(arguments.get("dir_path", "."))
     elif name == "run_command":
         return run_command(arguments.get("command"))
+    elif name == "get_absolute_path":
+        fp = arguments.get("file_path") or arguments.get("filename", ".")
+        return get_absolute_path(fp)
     else:
         return f"Error: Tool '{name}' is not recognized."

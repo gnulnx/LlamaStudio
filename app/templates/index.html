@@ -1519,6 +1519,7 @@
                     <div class="settings-tabs-header">
                         <button class="settings-tab-btn active" id="tabBtn-info" onclick="switchSettingsTab('info')">Info</button>
                         <button class="settings-tab-btn" id="tabBtn-load" onclick="switchSettingsTab('load')">Load Settings</button>
+                        <button class="settings-tab-btn" id="tabBtn-inference" onclick="switchSettingsTab('inference')">Inference Settings</button>
                     </div>
 
                     <!-- Config tab contents -->
@@ -1647,6 +1648,114 @@
                             </div>
                             <input type="number" class="control-input" id="param-rope-scale" value="0" step="0.1">
                         </div>
+
+                        <!-- Override KV -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Override KV</span>
+                                <span class="control-sublabel">e.g. qwen35.context_length=int:262144</span>
+                            </div>
+                            <input type="text" class="control-input" id="param-override-kv" placeholder="Leave empty for auto/default">
+                        </div>
+
+                        <!-- Chat Template -->
+                        <div class="control-group">
+                            <label class="control-label">Chat Template Override</label>
+                            <select class="control-input" id="param-chat-template" onchange="toggleCustomTemplateTextarea()">
+                                <option value="">Default (Model Metadata)</option>
+                                <option value="chatml">ChatML</option>
+                                <option value="gemma">Gemma</option>
+                                <option value="llama3">Llama 3</option>
+                                <option value="custom">Custom Jinja Template</option>
+                            </select>
+                        </div>
+
+                        <!-- Custom Chat Template Textarea (hidden by default) -->
+                        <div class="control-group" id="custom-template-group" style="display: none;">
+                            <label class="control-label">Custom Jinja Template</label>
+                            <textarea class="control-input" id="param-custom-template" rows="4" style="font-size:11px; font-family:monospace; resize:vertical;" placeholder="Enter custom Jinja template (e.g. for message in messages...)"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- ─── INFERENCE SETTINGS TAB ─── -->
+                    <div class="settings-tab-content" id="settingsTab-inference">
+                        <!-- System Prompt -->
+                        <div class="control-group">
+                            <label class="control-label">System Prompt</label>
+                            <textarea class="control-input" id="param-system-prompt" rows="3" style="resize:vertical;"></textarea>
+                        </div>
+                        
+                        <!-- Temperature -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Temperature</span>
+                                <span class="control-value-text" id="valText-temp-inf">0.7</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-temp-inf" min="0" max="2" step="0.1" value="0.7" oninput="updateParamText('temp-inf', this.value)">
+                                <input type="number" id="num-temp-inf" min="0" max="2" step="0.1" value="0.7" oninput="syncParamSlider('temp-inf', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Top P -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Top P</span>
+                                <span class="control-value-text" id="valText-topP-inf">0.9</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-topP-inf" min="0" max="1" step="0.05" value="0.9" oninput="updateParamText('topP-inf', this.value)">
+                                <input type="number" id="num-topP-inf" min="0" max="1" step="0.05" value="0.9" oninput="syncParamSlider('topP-inf', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Top K -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Top K</span>
+                                <span class="control-value-text" id="valText-topK-inf">40</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-topK-inf" min="1" max="100" step="1" value="40" oninput="updateParamText('topK-inf', this.value)">
+                                <input type="number" id="num-topK-inf" min="1" max="100" step="1" value="40" oninput="syncParamSlider('topK-inf', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Min P -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Min P</span>
+                                <span class="control-value-text" id="valText-minP-inf">0.05</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-minP-inf" min="0" max="1" step="0.01" value="0.05" oninput="updateParamText('minP-inf', this.value)">
+                                <input type="number" id="num-minP-inf" min="0" max="1" step="0.01" value="0.05" oninput="syncParamSlider('minP-inf', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Repeat Penalty -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Repeat Penalty</span>
+                                <span class="control-value-text" id="valText-repeatPenalty-inf">1.1</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-repeatPenalty-inf" min="0.5" max="2" step="0.05" value="1.1" oninput="updateParamText('repeatPenalty-inf', this.value)">
+                                <input type="number" id="num-repeatPenalty-inf" min="0.5" max="2" step="0.05" value="1.1" oninput="syncParamSlider('repeatPenalty-inf', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Max Tokens -->
+                        <div class="control-group">
+                            <label class="control-label">Max Generation Tokens</label>
+                            <input type="number" class="control-input" id="param-max-tokens" value="2048">
+                        </div>
+
+                        <!-- Stop Sequences -->
+                        <div class="control-group">
+                            <label class="control-label">Stop Sequences (comma-separated)</label>
+                            <input type="text" class="control-input" id="param-stop-sequences" placeholder="e.g. <|im_end|>,<|im_start|>">
+                        </div>
                     </div>
 
                     <!-- Sidebar Footer Save Button -->
@@ -1757,8 +1866,36 @@
                        oninput="document.getElementById('valText-topP').textContent=this.value">
             </div>
             <div class="control-group">
+                <div class="control-header">
+                    <span class="control-label">Top K</span>
+                    <span class="control-value-text" id="valText-topK">40</span>
+                </div>
+                <input type="range" min="1" max="100" step="1" value="40" id="globalTopK"
+                       oninput="document.getElementById('valText-topK').textContent=this.value">
+            </div>
+            <div class="control-group">
+                <div class="control-header">
+                    <span class="control-label">Min P</span>
+                    <span class="control-value-text" id="valText-minP">0.05</span>
+                </div>
+                <input type="range" min="0" max="1" step="0.01" value="0.05" id="globalMinP"
+                       oninput="document.getElementById('valText-minP').textContent=this.value">
+            </div>
+            <div class="control-group">
+                <div class="control-header">
+                    <span class="control-label">Repeat Penalty</span>
+                    <span class="control-value-text" id="valText-repeatPenalty">1.1</span>
+                </div>
+                <input type="range" min="0.5" max="2" step="0.05" value="1.1" id="globalRepeatPenalty"
+                       oninput="document.getElementById('valText-repeatPenalty').textContent=this.value">
+            </div>
+            <div class="control-group">
                 <label class="control-label">Max Generation Tokens</label>
                 <input type="number" class="control-input" id="globalMaxTokens" value="{{ max_tokens }}">
+            </div>
+            <div class="control-group">
+                <label class="control-label">Stop Sequences (comma-separated)</label>
+                <input type="text" class="control-input" id="globalStop" placeholder="e.g. <|im_end|>,<|im_start|>">
             </div>
         </div>
         <div class="modal-footer">
@@ -1786,6 +1923,11 @@
         
         // Initial setup for empty states
         refreshChatEmptyState();
+
+        // Apply running model inference settings to global inputs if running
+        if (isServerRunning && loadedModelPath) {
+            applyModelSettingsToGlobalModal(loadedModelPath);
+        }
 
         // Focused cursor
         const inputField = document.getElementById('chatInput');
@@ -2121,7 +2263,7 @@
         const settings = savedModelSettings[path] || {};
         
         // Populate inputs & ranges
-        setParamValue('ctx', settings.ctx_size || 2048);
+        setParamValue('ctx', settings.ctx_size || 8192);
         setParamValue('gpu', settings.gpu_layers !== undefined ? settings.gpu_layers : 999);
         setParamValue('threads', settings.threads || 4);
         
@@ -2132,6 +2274,23 @@
         document.getElementById('param-seed').value = settings.seed !== undefined ? settings.seed : -1;
         document.getElementById('param-rope-base').value = settings.rope_freq_base || 0;
         document.getElementById('param-rope-scale').value = settings.rope_freq_scale || 0;
+
+        // Populate new load settings
+        document.getElementById('param-override-kv').value = settings.override_kv || '';
+        document.getElementById('param-chat-template').value = settings.chat_template || '';
+        document.getElementById('param-custom-template').value = settings.custom_template || '';
+        toggleCustomTemplateTextarea();
+
+        // Populate new inference settings
+        const infSettings = settings.inference_settings || {};
+        document.getElementById('param-system-prompt').value = infSettings.system_prompt || 'You are a helpful assistant.';
+        setParamValue('temp-inf', infSettings.temperature !== undefined ? infSettings.temperature : 0.7);
+        setParamValue('topP-inf', infSettings.top_p !== undefined ? infSettings.top_p : 0.9);
+        setParamValue('topK-inf', infSettings.top_k !== undefined ? infSettings.top_k : 40);
+        setParamValue('minP-inf', infSettings.min_p !== undefined ? infSettings.min_p : 0.05);
+        setParamValue('repeatPenalty-inf', infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.1);
+        document.getElementById('param-max-tokens').value = infSettings.max_tokens || 2048;
+        document.getElementById('param-stop-sequences').value = infSettings.stop_sequences || '';
 
         // Eject / Load buttons sync
         const sidebarLoadBtn = document.getElementById('sidebarLoadBtn');
@@ -2148,11 +2307,20 @@
         switchSettingsTab('load'); // Focus on settings by default
     }
 
+    function toggleCustomTemplateTextarea() {
+        const val = document.getElementById('param-chat-template').value;
+        const group = document.getElementById('custom-template-group');
+        if (group) {
+            group.style.display = val === 'custom' ? 'block' : 'none';
+        }
+    }
+
     // ─── FORM VALUE UTILS ─────────────────────────────────────
     function setParamValue(name, val) {
         document.getElementById(`param-${name}`).value = val;
         document.getElementById(`num-${name}`).value = val;
-        document.getElementById(`valText-${name}`).textContent = val;
+        const textEl = document.getElementById(`valText-${name}`);
+        if (textEl) textEl.textContent = val;
     }
 
     // ─── SAVE AND PERSIST MODEL SETTINGS ──────────────────────
@@ -2191,6 +2359,23 @@
             seed: parseInt(document.getElementById('param-seed').value),
             rope_freq_base: parseFloat(document.getElementById('param-rope-base').value) || 0,
             rope_freq_scale: parseFloat(document.getElementById('param-rope-scale').value) || 0,
+            
+            // New Load Settings
+            override_kv: document.getElementById('param-override-kv').value,
+            chat_template: document.getElementById('param-chat-template').value,
+            custom_template: document.getElementById('param-custom-template').value,
+
+            // New Inference Settings
+            inference_settings: {
+                system_prompt: document.getElementById('param-system-prompt').value,
+                temperature: parseFloat(document.getElementById('param-temp-inf').value),
+                top_p: parseFloat(document.getElementById('param-topP-inf').value),
+                top_k: parseInt(document.getElementById('param-topK-inf').value),
+                min_p: parseFloat(document.getElementById('param-minP-inf').value),
+                repeat_penalty: parseFloat(document.getElementById('param-repeatPenalty-inf').value),
+                max_tokens: parseInt(document.getElementById('param-max-tokens').value) || 2048,
+                stop_sequences: document.getElementById('param-stop-sequences').value
+            }
         };
     }
 
@@ -2246,6 +2431,9 @@
                 loadedModelPath = path;
                 loadedModelName = path.split('/').pop().replace(/\.gguf$/i, '');
                 
+                // Copy settings profile to Global Settings modal immediately
+                applyModelSettingsToGlobalModal(path);
+
                 await pollServerStatus();
                 switchView('chat');
             }
@@ -2254,6 +2442,36 @@
         } finally {
             closeOverlay('processLoaderOverlay');
         }
+    }
+
+    function applyModelSettingsToGlobalModal(path) {
+        const settings = savedModelSettings[path] || {};
+        const infSettings = settings.inference_settings || {};
+        
+        document.getElementById('globalSystemPrompt').value = infSettings.system_prompt !== undefined ? infSettings.system_prompt : 'You are a helpful assistant.';
+        
+        const temp = infSettings.temperature !== undefined ? infSettings.temperature : 0.7;
+        document.getElementById('globalTemp').value = temp;
+        document.getElementById('valText-temp').textContent = temp;
+        
+        const topP = infSettings.top_p !== undefined ? infSettings.top_p : 0.9;
+        document.getElementById('globalTopP').value = topP;
+        document.getElementById('valText-topP').textContent = topP;
+        
+        const topK = infSettings.top_k !== undefined ? infSettings.top_k : 40;
+        document.getElementById('globalTopK').value = topK;
+        document.getElementById('valText-topK').textContent = topK;
+        
+        const minP = infSettings.min_p !== undefined ? infSettings.min_p : 0.05;
+        document.getElementById('globalMinP').value = minP;
+        document.getElementById('valText-minP').textContent = minP;
+        
+        const repPen = infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.1;
+        document.getElementById('globalRepeatPenalty').value = repPen;
+        document.getElementById('valText-repeatPenalty').textContent = repPen;
+        
+        document.getElementById('globalMaxTokens').value = infSettings.max_tokens || 2048;
+        document.getElementById('globalStop').value = infSettings.stop_sequences || '';
     }
 
     async function triggerEjectModel() {
@@ -2706,7 +2924,11 @@
                     system_prompt: document.getElementById('globalSystemPrompt').value,
                     temperature: parseFloat(document.getElementById('globalTemp').value),
                     top_p: parseFloat(document.getElementById('globalTopP').value),
-                    max_tokens: parseInt(document.getElementById('globalMaxTokens').value) || 2048
+                    max_tokens: parseInt(document.getElementById('globalMaxTokens').value) || 2048,
+                    top_k: parseInt(document.getElementById('globalTopK').value),
+                    min_p: parseFloat(document.getElementById('globalMinP').value),
+                    repeat_penalty: parseFloat(document.getElementById('globalRepeatPenalty').value),
+                    stop: document.getElementById('globalStop').value ? document.getElementById('globalStop').value.split(',').map(s => s.trim()) : []
                 })
             });
 

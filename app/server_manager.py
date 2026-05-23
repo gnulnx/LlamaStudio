@@ -45,20 +45,29 @@ class ServerManager:
         return port_active
 
     def _wait_for_ready(self, timeout: int = 180) -> bool:
+        import urllib.request
+        import json
+        
         start = time.time()
+        url = f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/health"
+        
         while time.time() - start < timeout:
             # If our process died while loading, stop waiting
             if self._process is not None and self._process.poll() is not None:
                 logger.error(f"[server] Process terminated unexpectedly with code {self._process.returncode}")
                 return False
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1)
-                sock.connect(("127.0.0.1", settings.LLAMA_SERVER_PORT))
-                sock.close()
-                return True
-            except (ConnectionRefusedError, OSError):
-                time.sleep(1)
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=1) as response:
+                    if response.status == 200:
+                        data = json.loads(response.read().decode())
+                        # llama-server /health returns status="ok" or connected
+                        if data.get("status") in ["ok", "connected"]:
+                            return True
+            except Exception:
+                # Expect connection refused, timeouts, or 503 Service Unavailable during startup
+                pass
+            time.sleep(1)
         return False
 
     def _build_command(self, model_path: str, params: dict = None) -> list:
@@ -113,9 +122,28 @@ class ServerManager:
         if rope_freq_scale and float(rope_freq_scale) > 0:
             cmd.extend(["--rope-freq-scale", str(rope_freq_scale)])
 
-        # Add override-kv if specified
-        if settings.LLAMA_SERVER_OVERRIDE_KV:
-            cmd.extend(["--override-kv", settings.LLAMA_SERVER_OVERRIDE_KV])
+        # Add override-kv if specified in model params
+        override_kv = params.get("override_kv")
+        if override_kv:
+            cmd.extend(["--override-kv", override_kv])
+        elif "qwen" in model_path.lower():
+            # Only apply Qwen override fallback to Qwen models
+            cmd.extend(["--override-kv", "qwen35.context_length=int:262144"])
+
+        # Add chat template if specified
+        chat_template = params.get("chat_template")
+        custom_template = params.get("custom_template")
+        if chat_template == "custom" and custom_template:
+            cmd.extend(["--chat-template", custom_template])
+        elif chat_template == "chatml":
+            chatml_tmpl = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>\n'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant\n'}}{% endif %}"
+            cmd.extend(["--chat-template", chatml_tmpl])
+        elif chat_template == "gemma":
+            gemma_tmpl = "{% for message in messages %}{{'<start_of_turn>' + message['role'] + '\n' + message['content'] + '<end_of_turn>\n'}}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>assistant\n'}}{% endif %}"
+            cmd.extend(["--chat-template", gemma_tmpl])
+        elif chat_template == "llama3":
+            llama3_tmpl = "<|begin_of_text|>{% for message in messages %}{{'<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] + '<|eot_id|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|start_header_id|>assistant<|end_header_id|>\n\n'}}{% endif %}"
+            cmd.extend(["--chat-template", llama3_tmpl])
 
         return cmd
 

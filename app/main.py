@@ -224,6 +224,10 @@ async def send_message(request: Request):
     top_p = body.get("top_p")
     max_tokens = body.get("max_tokens")
     system_prompt = body.get("system_prompt")
+    top_k = body.get("top_k")
+    min_p = body.get("min_p")
+    repeat_penalty = body.get("repeat_penalty")
+    stop = body.get("stop")
 
     if not user_msg:
         raise HTTPException(400, "Empty message")
@@ -239,6 +243,10 @@ async def send_message(request: Request):
             top_p=top_p,
             max_tokens=max_tokens,
             system_prompt=system_prompt,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            stop=stop,
         ):
             yield chunk
         yield "data: {'type': 'end'}\n\n"

@@ -9,12 +9,12 @@ class Settings(BaseSettings):
     # llama.cpp server settings
     LLAMA_SERVER_BIN: str = "/home/gnulnx/llama.cpp/build/bin/llama-server"
     LLAMA_SERVER_PORT: int = 1234
-    LLAMA_SERVER_CTX_SIZE: int = 262144
+    LLAMA_SERVER_CTX_SIZE: int = 16384
     LLAMA_SERVER_GPU_LAYERS: int = 999
     LLAMA_SERVER_FLASH_ATTN: str = "on"
     LLAMA_SERVER_KV_CACHE_TYPE: str = "q8_0"
     LLAMA_SERVER_VOCAB_TYPE: str = "q8_0"
-    LLAMA_SERVER_OVERRIDE_KV: str = "qwen35.context_length=int:262144"
+    LLAMA_SERVER_OVERRIDE_KV: str = ""
 
     # Default model path
     DEFAULT_MODEL: str = "/home/gnulnx/.lmstudio/models/Jackrong/Qwopus3.6-27B-v2-GGUF/Qwopus3.6-27B-v2-Q4_K_S.gguf"

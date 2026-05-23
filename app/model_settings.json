@@ -10,5 +10,30 @@
     "seed": -1,
     "rope_freq_base": 0.0,
     "rope_freq_scale": 0.0
+  },
+  "/home/gnulnx/.lmstudio/models/TeichAI/gemma-4-31B-it-Claude-Opus-Distill-v2-GGUF/gemma-4-31B-it-Claude-Opus-Distill.q4_k_m.gguf": {
+    "ctx_size": 128000,
+    "gpu_layers": 128,
+    "threads": 4,
+    "flash_attn": true,
+    "mmap": true,
+    "kv_cache_type": "q8_0",
+    "vocab_type": "q8_0",
+    "seed": -1,
+    "rope_freq_base": 0,
+    "rope_freq_scale": 0,
+    "override_kv": "",
+    "chat_template": "chatml",
+    "custom_template": "",
+    "inference_settings": {
+      "system_prompt": "You are a helpful assistant.",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 40,
+      "min_p": 0.05,
+      "repeat_penalty": 1.1,
+      "max_tokens": 2048,
+      "stop_sequences": "<|im_end|>,<|im_start|>"
+    }
   }
 }
