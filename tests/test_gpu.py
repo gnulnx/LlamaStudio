@@ -1,8 +1,8 @@
+import asyncio
 import os
 import sys
 import unittest
-import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Ensure the app package can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -24,7 +24,7 @@ class TestGPUUtils(unittest.TestCase):
         self.assertEqual(info["vram"], 32)
         mock_subprocess.assert_called_once_with(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            text=True
+            text=True,
         )
 
     @patch("app.gpu_utils.platform.system", return_value="Linux")
@@ -49,7 +49,26 @@ class TestGPUUtils(unittest.TestCase):
 
     @patch("app.gpu_utils.platform.system", return_value="Linux")
     @patch("app.gpu_utils.subprocess.check_output")
-    def test_linux_fallback_lspci(self, mock_subprocess, mock_system):
+    @patch("glob.glob")
+    @patch("builtins.open", new_callable=unittest.mock.mock_open, read_data="6442450944\n")
+    def test_linux_amd_sysfs_success(self, mock_file, mock_glob, mock_subprocess, mock_system):
+        # nvidia-smi and rocm-smi fail, glob returns sysfs files, lspci succeeds
+        def check_output_side_effect(args, **kwargs):
+            if "lspci" in args[0]:
+                return "65:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Phoenix1 (rev c2)\n"
+            raise FileNotFoundError()
+
+        mock_subprocess.side_effect = check_output_side_effect
+        mock_glob.return_value = ["/sys/class/drm/card0/device/mem_info_vram_total"]
+
+        info = get_gpu_info()
+        self.assertEqual(info["name"], "Advanced Micro Devices, Inc. [AMD/ATI] Phoenix1 (rev c2)")
+        self.assertEqual(info["vram"], 6)
+
+    @patch("app.gpu_utils.platform.system", return_value="Linux")
+    @patch("app.gpu_utils.subprocess.check_output")
+    @patch("glob.glob", return_value=[])
+    def test_linux_fallback_lspci(self, mock_glob, mock_subprocess, mock_system):
         # Both nvidia-smi and rocm-smi fail, lspci succeeds
         def check_output_side_effect(args, **kwargs):
             if "lspci" in args[0]:
