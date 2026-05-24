@@ -17,3 +17,7 @@ app/model_settings.json
 
 # User temporary test files
 HelloFromMe.txt
+
+# Node dependencies
+node_modules/
+

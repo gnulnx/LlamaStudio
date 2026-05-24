@@ -79,6 +79,15 @@ async def server_status():
     return server.get_status()
 
 
+@app.get("/api/gpu")
+async def get_gpu():
+    """Retrieve primary GPU name and VRAM (in GB)."""
+    from .gpu_utils import get_gpu_info
+
+    return get_gpu_info()
+
+
+
 @app.get("/api/server/logs")
 async def server_logs(type: str = "llama", lines: int = 50):
     log_name = "app.log" if type == "app" else "server.log"
