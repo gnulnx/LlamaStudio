@@ -3505,6 +3505,42 @@
         }
     }
 
+    function detectGPU() {
+        if (navigator.gpu) {
+            try {
+                const adapter = navigator.gpu;
+                const info = adapter.requestAdapterInfo();
+                const vramGB = adapter.info?.vram;
+                let name = info?.device || info?.adapter || info?.renderer || '';
+                if (name && !name.match(/^(intel|amd|mobile)/i)) {
+                    return { name, vram: vramGB || 8 };
+                }
+                if (vramGB) {
+                    return { name: name || 'GPU', vram: vramGB };
+                }
+            } catch(e) { /* fall through */ }
+        }
+        const r = navigator.webgl?.renderer || '';
+        const known = {
+            'RTX 5090': 32, 'RTX 5080': 16, 'RTX 5070 Ti': 16, 'RTX 5070': 12,
+            'RTX 4090': 24, 'RTX 4080': 16, 'RTX 4070 Ti': 12, 'RTX 4070': 12,
+            'RTX 4060': 8, 'RTX 3090': 24, 'RTX 3080 Ti': 12, 'RTX 3080': 10,
+            'RTX 3070': 8, 'RTX 3060': 12, 'RTX 3060 Ti': 8,
+            'GTX 1660': 6, 'GTX 1080': 8, 'GTX 1070': 4,
+            'RX 7900': 24, 'RX 7800': 16, 'RX 7700': 12, 'RX 6800': 16,
+            'M4': 16, 'M2': 8, 'M1': 8,
+        };
+        for (const [g, v] of Object.entries(known)) {
+            if (r.includes(g)) return { name: g, vram: v };
+        }
+        const mem = navigator.deviceMemory || 8;
+        const isDiscrete = r.match(/(nvidia|amd|radeon|geforce|rx )/i);
+        if (mem >= 32) return { name: 'High-End GPU', vram: 24 };
+        if (mem >= 16) return { name: isDiscrete ? 'Discrete GPU' : 'GPU', vram: 12 };
+        if (mem >= 8) return { name: isDiscrete ? 'Discrete GPU' : 'GPU', vram: 8 };
+        return { name: 'GPU', vram: 6 };
+    }
+
     function evaluateVramEstimate() {
         const repo = document.getElementById('hfSelectedModelRepo').textContent;
         const file = document.getElementById('hfQuantSelect').value;
@@ -3516,6 +3552,8 @@
         }
 
         let sizeGb = 0.0;
+        const vram = detectGPU().vram;
+        const gpuName = detectGPU().name;
         
         const siblings = selectedHfModelDetails.siblings || [];
         const found = siblings.find(s => s.rfilename === file);
@@ -3542,25 +3580,25 @@
 
         const sizeFormatted = sizeGb.toFixed(1) + " GB";
 
-        if (sizeGb + 4.0 <= 32.0) {
+        if (sizeGb + 4.0 <= vram) {
             badgeContainer.innerHTML = `
                 <div style="background: rgba(46, 204, 113, 0.12); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
                     <i class="fa-solid fa-circle-check" style="font-size: 14px;"></i>
-                    <span>Fits Fully on RTX 5090 (${sizeFormatted} GGUF)</span>
+                    <span>Fits Fully on ${gpuName} (${sizeFormatted} GGUF)</span>
                 </div>
             `;
-        } else if (sizeGb < 32.0) {
+        } else if (sizeGb < vram) {
             badgeContainer.innerHTML = `
                 <div style="background: rgba(241, 196, 15, 0.12); color: #f1c40f; border: 1px solid rgba(241, 196, 15, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
                     <i class="fa-solid fa-triangle-exclamation" style="font-size: 14px;"></i>
-                    <span>Partial Offload / Large KV needed (${sizeFormatted})</span>
+                    <span>Partial Offload (${gpuName || 'Large GPU'} needed) (${sizeFormatted})</span>
                 </div>
             `;
         } else {
             badgeContainer.innerHTML = `
                 <div style="background: rgba(231, 76, 60, 0.12); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
                     <i class="fa-solid fa-circle-xmark" style="font-size: 14px;"></i>
-                    <span>Exceeds 32GB VRAM - Heavy CPU Fallback (${sizeFormatted})</span>
+                    <span>Exceeds ${vram}GB VRAM - Heavy CPU Fallback (${sizeFormatted})</span>
                 </div>
             `;
         }
