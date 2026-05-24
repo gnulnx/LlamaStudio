@@ -21,6 +21,12 @@ dependencies = [
 [project.scripts]
 lls = "app.cli:cli"
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 
