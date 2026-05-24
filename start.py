@@ -174,7 +174,7 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=open_browser, daemon=True).start()
 
-    logger.info(f"[LLamaStudio] Starting on http://127.0.0.1:{settings.APP_PORT}")
+    logger.info(f"[LLamaStudio] Starting on http://{settings.APP_HOST}:{settings.APP_PORT}")
     if stopped_existing:
         logger.info("[LLamaStudio] Previous instance was stopped; launching refreshed app")
     logger.info(f"[LLamaStudio] llama-server will start automatically")
