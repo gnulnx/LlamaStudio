@@ -58,8 +58,8 @@ cd LlamaStudio
 conda create -n llamastudio python=3.13 -y
 conda activate llamastudio
 
-# 3. Install requirements
-pip install -r requirements.txt
+# 3. Install LlamaStudio and its dependencies
+pip install -e .
 ```
 
 ##### Option B: Python Virtualenv (`venv`)
@@ -72,8 +72,8 @@ cd LlamaStudio
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3. Install requirements
-pip install -r requirements.txt
+# 3. Install LlamaStudio and its dependencies
+pip install -e .
 ```
 
 #### 🖥️ Linux Desktop Launcher Integration (Optional)
@@ -116,8 +116,8 @@ cd LlamaStudio
 conda create -n llamastudio python=3.13 -y
 conda activate llamastudio
 
-# 3. Install requirements
-pip install -r requirements.txt
+# 3. Install LlamaStudio and its dependencies
+pip install -e .
 ```
 
 ##### Option B: Python Virtualenv (`venv`)
@@ -130,8 +130,8 @@ cd LlamaStudio
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3. Install requirements
-pip install -r requirements.txt
+# 3. Install LlamaStudio and its dependencies
+pip install -e .
 ```
 
 ---
@@ -149,9 +149,6 @@ Pull requests extending native Windows support (e.g., resolving `.exe` binaries)
 ### Option A: Via Unified CLI (`lls` - Recommended)
 You can link and install LlamaStudio's premium CLI utility locally to control the desktop app and server seamlessly:
 ```bash
-# Link the unified lls command in your environment
-pip install -e .
-
 # Start the desktop application server and open browser UI
 lls reload
 ```
@@ -237,7 +234,7 @@ For local environments containing active GPUs and downloaded models, you can run
 ```
 LlamaStudio/
 ├── start.py               # Main entrypoint (starts FastAPI + opens browser)
-├── requirements.txt       # Declared python dependencies
+├── pyproject.toml         # Package metadata, CLI entrypoint, and dependencies
 ├── llamastudio.desktop    # GNOME/Linux desktop launcher metadata
 ├── llamastudio.svg        # Custom application vector icon
 ├── app/

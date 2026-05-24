@@ -10,15 +10,25 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "fastapi>=0.115.0",
-    "pydantic-settings",
-    "uvicorn",
-    "jinja2",
     "httpx",
-    "rich-click"
+    "jinja2",
+    "pydantic-settings",
+    "rich",
+    "rich-click",
+    "uvicorn",
 ]
 
 [project.scripts]
 lls = "app.cli:cli"
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html"]

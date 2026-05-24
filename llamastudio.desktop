@@ -3,7 +3,7 @@ Version=1.0
 Type=Application
 Name=LLamaStudio
 Comment=Chat interface for llama.cpp
-Exec=/home/gnulnx/miniconda3/envs/llamastudio/bin/python /home/gnulnx/LlamaStudio/start.py
+Exec=/usr/bin/env LLAMASTUDIO_APP_HOST=0.0.0.0 /home/gnulnx/miniconda3/envs/llamastudio/bin/python /home/gnulnx/LlamaStudio/start.py
 Path=/home/gnulnx/LlamaStudio
 Icon=llamastudio
 Terminal=false

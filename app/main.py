@@ -218,7 +218,8 @@ async def delete_model(request: Request):
             403, "Access denied: cannot delete files outside allowed model directories"
         )
 
-    if server._current_model == str(abs_path) and server.is_running:
+    current_model = Path(server._current_model).resolve() if server._current_model else None
+    if current_model == abs_path and server.is_running:
         raise HTTPException(
             400, "Cannot delete a model that is currently loaded. Please eject the model first."
         )
