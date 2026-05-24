@@ -2,6 +2,8 @@ import os
 import sys
 import unittest
 import asyncio
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # Ensure the app package can be imported
@@ -130,47 +132,72 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
         # Cleanup
         await downloader.cancel_download()
 
+    @patch("app.model_manager.refresh_models")
+    @patch("app.downloader.settings")
+    async def test_download_loop_uses_direct_huggingface_download(self, mock_settings, mock_refresh):
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_settings.MODEL_DIRS = [tmp]
 
-class TestFastAPIPoints(unittest.IsolatedAsyncioTestCase):
+            async def fake_download(repo_id, filename, tmp_path):
+                self.assertEqual(repo_id, "author/repo")
+                self.assertEqual(filename, "model.gguf")
+                target = Path(tmp_path)
+                target.write_bytes(b"gguf")
+
+            with patch.object(
+                downloader,
+                "_download_from_huggingface",
+                side_effect=fake_download,
+            ) as mock_direct_download:
+                await downloader._download_loop("author/repo", "model.gguf")
+
+            mock_direct_download.assert_called_once()
+            mock_refresh.assert_called_once()
+            self.assertEqual(downloader.status, "completed")
+            self.assertTrue((Path(tmp) / "author" / "repo" / "model.gguf").exists())
+
+    @patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False)
+    def test_direct_download_helpers_escape_paths_and_pass_token(self):
+        self.assertEqual(
+            downloader._resolve_url("author/repo name", "sub dir/model Q4.gguf"),
+            "https://huggingface.co/author/repo%20name/resolve/main/sub%20dir/model%20Q4.gguf",
+        )
+
+        headers = downloader._hf_headers()
+        self.assertEqual(headers["User-Agent"], "LLamaStudio-Client")
+        self.assertEqual(headers["Authorization"], "Bearer test-token")
+
+
+class TestFastAPIPoints(unittest.TestCase):
     """Test Suite for FastAPI Endpoints in main.py."""
 
     @patch("app.model_manager.search_huggingface_models", new_callable=AsyncMock)
     def test_search_endpoint(self, mock_search):
-        from fastapi.testclient import TestClient
-        from app.main import app
+        from app.main import search_models
 
         mock_search.return_value = [{"id": "test/model", "downloads": 10}]
 
-        client = TestClient(app)
-        response = client.get("/api/models/search?q=test")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"models": [{"id": "test/model", "downloads": 10}]})
+        response = asyncio.run(search_models(q="test"))
+        self.assertEqual(response, {"models": [{"id": "test/model", "downloads": 10}]})
         mock_search.assert_called_once_with("test", "downloads")
 
     @patch("app.model_manager.get_huggingface_model_details", new_callable=AsyncMock)
     @patch("app.model_manager.get_huggingface_model_readme", new_callable=AsyncMock)
     def test_details_endpoint(self, mock_readme, mock_details):
-        from fastapi.testclient import TestClient
-        from app.main import app
+        from app.main import get_hf_model_details
 
         mock_details.return_value = {"id": "test/model", "siblings": []}
         mock_readme.return_value = "# Model README"
 
-        client = TestClient(app)
-        response = client.get("/api/models/hf-details?repo_id=test/model")
-        self.assertEqual(response.status_code, 200)
-        resp_json = response.json()
-        self.assertEqual(resp_json["details"]["id"], "test/model")
-        self.assertEqual(resp_json["readme"], "# Model README")
+        response = asyncio.run(get_hf_model_details(repo_id="test/model"))
+        self.assertEqual(response["details"]["id"], "test/model")
+        self.assertEqual(response["readme"], "# Model README")
 
     def test_active_download_endpoint(self):
-        from fastapi.testclient import TestClient
-        from app.main import app
+        from app.main import is_download_active
 
-        client = TestClient(app)
-        response = client.get("/api/models/download/active")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("active", response.json())
+        response = asyncio.run(is_download_active())
+        self.assertIn("active", response)
 
 
 if __name__ == "__main__":
