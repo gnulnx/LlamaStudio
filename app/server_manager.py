@@ -147,11 +147,31 @@ class ServerManager:
             # Only apply Qwen override fallback to Qwen models
             cmd.extend(["--override-kv", "qwen35.context_length=int:262144"])
 
+        # Auto-configure deepseek models (ensure reasoning format is correct)
+        if "deepseek" in model_path.lower():
+            cmd.extend(["--reasoning-format", "deepseek"])
+
         # Add chat template if specified
         chat_template = params.get("chat_template")
+
+        # Auto-default to deepseek-r1 template for DeepSeek models to ensure tool calling works
+        if not chat_template and "deepseek" in model_path.lower():
+            chat_template = "deepseek-r1"
+
         custom_template = params.get("custom_template")
         if chat_template == "custom" and custom_template:
             cmd.extend(["--chat-template", custom_template])
+        elif chat_template == "deepseek-r1":
+            templates_dir = Path.home() / "llama.cpp" / "models" / "templates"
+            generic_r1_tmpl = templates_dir / "llama-cpp-deepseek-r1.jinja"
+            specific_qwen_tmpl = templates_dir / "deepseek-ai-DeepSeek-R1-Distill-Qwen-32B.jinja"
+
+            if generic_r1_tmpl.exists():
+                cmd.extend(["--chat-template-file", str(generic_r1_tmpl)])
+            elif specific_qwen_tmpl.exists():
+                cmd.extend(["--chat-template-file", str(specific_qwen_tmpl)])
+            else:
+                cmd.extend(["--chat-template", "deepseek"])
         elif chat_template == "chatml":
             chatml_tmpl = "{% for message in messages %}{{'</think>' + message['role'] + '\\n' + message['content'] + '\\n'}}{% endfor %}{% if add_generation_prompt %}{{'\\n'}}{% endif %}"
             cmd.extend(["--chat-template", chatml_tmpl])
@@ -241,12 +261,12 @@ class ServerManager:
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
 
-                self._process = subprocess.Popen(
-                    cmd_fallback,
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    cwd=Path(cmd_fallback[0]).parent,
-                )
+                    self._process = subprocess.Popen(
+                        cmd_fallback,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        cwd=Path(cmd_fallback[0]).parent,
+                    )
 
                 if self._wait_for_ready():
                     logger.info(
