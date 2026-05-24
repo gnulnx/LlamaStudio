@@ -193,6 +193,53 @@ async def refresh_models():
     }
 
 
+@app.delete("/api/models/delete")
+async def delete_model(request: Request):
+    """Delete a GGUF model from the local filesystem."""
+    body = await request.json()
+    model_path = body.get("path")
+    if not model_path:
+        raise HTTPException(400, "Model path is required")
+
+    abs_path = Path(model_path).resolve()
+
+    if not abs_path.exists() or not abs_path.is_file():
+        raise HTTPException(404, "Model file not found on disk")
+
+    is_safe = False
+    for allowed_dir in settings.MODEL_DIRS:
+        allowed_abs = Path(allowed_dir).resolve()
+        if allowed_abs in abs_path.parents:
+            is_safe = True
+            break
+
+    if not is_safe:
+        raise HTTPException(
+            403, "Access denied: cannot delete files outside allowed model directories"
+        )
+
+    if server._current_model == str(abs_path) and server.is_running:
+        raise HTTPException(
+            400, "Cannot delete a model that is currently loaded. Please eject the model first."
+        )
+
+    try:
+        abs_path.unlink()
+
+        # Clean up empty parent directories up to the allowed MODEL_DIRS
+        parent = abs_path.parent
+        for allowed_dir in settings.MODEL_DIRS:
+            allowed_abs = Path(allowed_dir).resolve()
+            while parent != allowed_abs and parent.exists() and len(list(parent.iterdir())) == 0:
+                parent.rmdir()
+                parent = parent.parent
+
+        return {"status": "ok", "message": f"Successfully deleted model {abs_path.name} from disk"}
+    except Exception as e:
+        logger.error(f"Error deleting model file {abs_path}: {e}")
+        raise HTTPException(500, f"Error deleting model: {e}")
+
+
 # ─── Hugging Face Search & Downloader Endpoints ───────────────
 
 
