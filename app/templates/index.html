@@ -1800,12 +1800,17 @@
                 <div class="config-sidebar" id="configSidebar" style="display: none;">
                     <div class="config-sidebar-header">
                         <div class="config-sidebar-title" id="selectedModelName">Qwen35-27B</div>
-                        <div class="config-cta-btns">
-                            <button class="sidebar-action-btn primary" id="sidebarLoadBtn" onclick="triggerSelectedModelLoad()">
-                                <i class="fa-solid fa-power-off"></i> Load Model
-                            </button>
-                            <button class="sidebar-action-btn danger" id="sidebarEjectBtn" style="display: none;" onclick="triggerEjectModel()">
-                                <i class="fa-solid fa-eject"></i> Eject
+                        <div class="config-cta-btns" style="display: flex; gap: 8px; align-items: center; justify-content: space-between; width: 100%;">
+                            <div style="display: flex; gap: 8px; flex: 1;">
+                                <button class="sidebar-action-btn primary" id="sidebarLoadBtn" style="flex: 1;" onclick="triggerSelectedModelLoad()">
+                                    <i class="fa-solid fa-power-off"></i> Load Model
+                                </button>
+                                <button class="sidebar-action-btn danger" id="sidebarEjectBtn" style="display: none; flex: 1;" onclick="triggerEjectModel()">
+                                    <i class="fa-solid fa-eject"></i> Eject
+                                </button>
+                            </div>
+                            <button class="sidebar-action-btn danger" id="sidebarDeleteBtn" onclick="triggerSelectedModelDelete()" title="Delete Model from Disk" style="aspect-ratio: 1; width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(231,76,60,0.3); background: none; color: #e74c3c; border-radius: 8px; cursor: pointer; transition: all 0.15s;">
+                                <i class="fa-solid fa-trash-can"></i>
                             </button>
                         </div>
                     </div>
@@ -2235,7 +2240,7 @@
     let conversations = {{ conversations | tojson }};
     let discoveredModels = [];
     let savedModelSettings = {};
-    let selectedModelPath = '';
+    var selectedModelPath = '';
     let loadedModelPath = '{{ current_model or "" }}';
     let loadedModelName = '{{ current_model_name or "" }}';
     let isServerRunning = {% if server_running %}true{% else %}false{% endif %};
@@ -2748,6 +2753,35 @@
 
     function showNotification(title, msg) {
         alert(`${title}: ${msg}`);
+    }
+
+    async function triggerSelectedModelDelete() {
+        if (!selectedModelPath) return;
+        
+        const filename = selectedModelPath.split('/').pop();
+        const confirmation = confirm(`⚠️ WARNING: Deleting this model will permanently remove it from your disk!\n\nThis cannot be undone.\n\nAre you sure you want to delete "${filename}"?`);
+        
+        if (!confirmation) return;
+
+        try {
+            const res = await fetch('/api/models/delete', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: selectedModelPath })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert(`Deletion failed: ${err.detail || 'check server.log'}`);
+            } else {
+                selectedModelPath = '';
+                document.getElementById('configSidebar').style.display = 'none';
+                await rescanModels();
+                alert("Model successfully deleted from disk.");
+            }
+        } catch (e) {
+            alert(`Error deleting model: ${e.message}`);
+        }
     }
 
     // ─── DYNAMIC LOAD MODEL LOGIC ─────────────────────────────
