@@ -353,6 +353,48 @@ class ChatManager:
                                 args[kw] = val
                             return args
 
+                    # Match DeepSeek-R1 style tool calls:
+                    # <|tool_calls_begin|><|tool_call_begin|>function<|tool_sep|>tool_name\n```json\n{...}\n```\n<|tool_call_end|><|tool_calls_end|>
+                    ds_matches = list(
+                        re.finditer(
+                            r"<[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]begin[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]begin[|\uFF5C]>(?:function|tool)?\s*<[|\uFF5C]tool[\s\u2581\_]sep[|\uFF5C]>(\w+)\s*(?:```json|```)?\s*(\{.*?\})\s*(?:```)?\s*<[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]end[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]end[|\uFF5C]>",
+                            assistant_text,
+                            re.DOTALL,
+                        )
+                    )
+                    if ds_matches:
+                        for m in ds_matches:
+                            tool_name = m.group(1)
+                            args_json = m.group(2)
+                            try:
+                                args_dict = json.loads(args_json)
+                            except Exception:
+                                args_dict = {}
+
+                            tc_id = f"call_{uuid.uuid4().hex[:8]}"
+                            tool_calls_accumulated.append({
+                                "id": tc_id,
+                                "type": "function",
+                                "function": {"name": tool_name, "arguments": json.dumps(args_dict)},
+                            })
+
+                            # Clean up the tool call markup from the printed assistant text
+                            assistant_text = assistant_text.replace(m.group(0), "").strip()
+
+                            # Notify frontend dynamically that a tool call was detected
+                            tool_call_delta = {
+                                "tool_call_delta": {
+                                    "index": len(tool_calls_accumulated) - 1,
+                                    "id": tc_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_name,
+                                        "arguments": json.dumps(args_dict),
+                                    },
+                                }
+                            }
+                            yield f"data: {json.dumps(tool_call_delta)}\n\n"
+
                     # Match <|tool_call>call:tool_name(args)<tool_call|>
                     matches = list(
                         re.finditer(
