@@ -4,6 +4,7 @@ Chat state management and llama.cpp API interaction.
 from __future__ import annotations
 import httpx
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -287,7 +288,6 @@ class ChatManager:
                 # Check for custom text-based tool calls in the generated content (e.g. Gemma inline tool calls)
                 if not tool_calls_accumulated and assistant_text:
                     import ast
-                    import re
                     def parse_args_str(args_str: str) -> dict:
                         try:
                             tree = ast.parse(f"dummy({args_str})")
