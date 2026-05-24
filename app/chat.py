@@ -357,7 +357,7 @@ class ChatManager:
                     # <|tool_calls_begin|><|tool_call_begin|>function<|tool_sep|>tool_name\n```json\n{...}\n```\n<|tool_call_end|><|tool_calls_end|>
                     ds_matches = list(
                         re.finditer(
-                            r"<[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]begin[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]begin[|\uFF5C]>(?:function|tool)?\s*<[|\uFF5C]tool[\s\u2581\_]sep[|\uFF5C]>(\w+)\s*(?:```json|```)?\s*(\{.*?\})\s*(?:```)?\s*<[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]end[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]end[|\uFF5C]>",
+                            r"<[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]begin[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]begin[|\uFF5C]>(?:(?:function|tool)?\s*<[|\uFF5C]tool[\s\u2581\_]sep[|\uFF5C>])?\s*(\w+)\s*(?:```json|```)?\s*(\{.*?\})\s*(?:```)?\s*<[|\uFF5C]tool[\s\u2581\_]call[\s\u2581\_]end[|\uFF5C]><[|\uFF5C]tool[\s\u2581\_]calls[\s\u2581\_]end[|\uFF5C]>",
                             assistant_text,
                             re.DOTALL,
                         )
