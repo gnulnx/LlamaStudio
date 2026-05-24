@@ -210,8 +210,35 @@ def eject():
             console.print(f"[bold red]Failed to communicate with API server: {e}[/bold red]")
 
 
+@cli.command(name="ls")
+def list_models_cmd():
+    """List all available models in your scanned directories."""
+    from app.model_manager import scan_models
+
+    scanned_models = scan_models()
+    if not scanned_models:
+        console.print("[bold yellow]No models found in your scanned directories.[/bold yellow]")
+        return
+
+    table = Table(title="[bold green]Available Models[/bold green]", border_style="cyan")
+    table.add_column("No.", justify="right", style="yellow")
+    table.add_column("Model Name", style="bold cyan")
+    table.add_column("Size", justify="right", style="green")
+    table.add_column("Quantization", style="magenta")
+
+    for idx, m in enumerate(scanned_models, start=1):
+        table.add_row(
+            str(idx),
+            m.name,
+            m.size_human,
+            m.quant or "Unknown",
+        )
+
+    console.print(table)
+
+
 @cli.command()
-@click.argument("model")
+@click.argument("model", required=False)
 @click.option("--ctx-size", type=int, help="Override context size (default: 16384)")
 @click.option("--gpu-layers", type=int, help="Override offloaded GPU layers (default: 999)")
 @click.option("--threads", type=int, help="Number of CPU threads to use")
@@ -235,6 +262,7 @@ def load(model, reload, **kwargs):
     """Load a specific model with customized parameters.
 
     MODEL can be a scanned model name (e.g. 'gemma-4-26B-A4B-it-Q8_0') or a full file path to a GGUF file.
+    If MODEL is omitted, LlamaStudio displays a numbered list of available models to select from.
     """
     # 1. Resolve model name/path
     from app.model_manager import scan_models
@@ -244,36 +272,56 @@ def load(model, reload, **kwargs):
     resolved_path = None
     model_name = None
 
-    # Try direct path
-    if Path(model).exists() and Path(model).is_file():
-        resolved_path = str(Path(model).resolve())
-        model_name = Path(model).stem
-    else:
-        # Search by scanned name
-        for m in scanned_models:
-            if m.name == model or m.path == model:
-                resolved_path = m.path
-                model_name = m.name
-                break
+    if not model:
+        if not scanned_models:
+            console.print("[bold red]Error: No models found in scanned directories.[/bold red]")
+            return
 
-        # Fuzzy search case-insensitive contains
-        if not resolved_path:
+        console.print("[bold cyan]Available Scanned Models:[/bold cyan]")
+        for idx, m in enumerate(scanned_models, start=1):
+            console.print(
+                f"  [bold yellow]{idx}[/bold yellow]. {m.name} [dim]({m.size_human})[/dim]"
+            )
+
+        selection = click.prompt("\nSelect a model number to load", type=int)
+        if selection < 1 or selection > len(scanned_models):
+            console.print("[bold red]Invalid selection.[/bold red]")
+            return
+
+        selected_model = scanned_models[selection - 1]
+        resolved_path = selected_model.path
+        model_name = selected_model.name
+    else:
+        # Try direct path
+        if Path(model).exists() and Path(model).is_file():
+            resolved_path = str(Path(model).resolve())
+            model_name = Path(model).stem
+        else:
+            # Search by scanned name
             for m in scanned_models:
-                if model.lower() in m.name.lower():
+                if m.name == model or m.path == model:
                     resolved_path = m.path
                     model_name = m.name
-                    console.print(
-                        f"[yellow]Fuzzy matched model to: [bold cyan]{model_name}[/bold cyan][/yellow]"
-                    )
                     break
 
-    if not resolved_path:
-        console.print(f"[bold red]Error: Could not find or resolve model '{model}'[/bold red]")
-        if scanned_models:
-            console.print("\n[bold cyan]Available Scanned Models:[/bold cyan]")
-            for m in scanned_models:
-                console.print(f"  - {m.name} [dim]({m.size_human})[/dim]")
-        return
+            # Fuzzy search case-insensitive contains
+            if not resolved_path:
+                for m in scanned_models:
+                    if model.lower() in m.name.lower():
+                        resolved_path = m.path
+                        model_name = m.name
+                        console.print(
+                            f"[yellow]Fuzzy matched model to: [bold cyan]{model_name}[/bold cyan][/yellow]"
+                        )
+                        break
+
+        if not resolved_path:
+            console.print(f"[bold red]Error: Could not find or resolve model '{model}'[/bold red]")
+            if scanned_models:
+                console.print("\n[bold cyan]Available Scanned Models:[/bold cyan]")
+                for m in scanned_models:
+                    console.print(f"  - {m.name} [dim]({m.size_human})[/dim]")
+            return
 
     # 2. Handle reload or server offline
     if reload and is_server_online():

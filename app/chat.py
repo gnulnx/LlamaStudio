@@ -4,6 +4,7 @@ Chat state management and llama.cpp API interaction.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import time
@@ -201,7 +202,10 @@ class ChatManager:
             conv.messages.append(Message(role="user", content=user_message))
             self._save_to_disk()
 
-        while True:
+        max_iterations = 5
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
             # Build message history for the API
             messages = []
             if system_prompt:
@@ -210,7 +214,22 @@ class ChatManager:
             for msg in conv.messages:
                 msg_dict = {"role": msg.role, "content": msg.content}
                 if msg.tool_calls:
-                    msg_dict["tool_calls"] = msg.tool_calls
+                    # Parse tool call arguments to dictionary to avoid double-escaping in llama.cpp templates
+                    parsed_tool_calls = []
+                    for tc in msg.tool_calls:
+                        tc_copy = dict(tc)
+                        if "function" in tc_copy:
+                            func_copy = dict(tc_copy["function"])
+                            args = func_copy.get("arguments")
+                            if isinstance(args, str):
+                                with contextlib.suppress(Exception):
+                                    func_copy["arguments"] = json.loads(args)
+                            tc_copy["function"] = func_copy
+                        parsed_tool_calls.append(tc_copy)
+                    msg_dict["tool_calls"] = parsed_tool_calls
+                    # Ensure content is None when tool calls are present to satisfy
+                    # llama.cpp Jinja template's `not message['content']` condition
+                    msg_dict["content"] = None
                 if msg.tool_call_id:
                     msg_dict["tool_call_id"] = msg.tool_call_id
                 if msg.name:
@@ -430,6 +449,13 @@ class ChatManager:
                         self._save_to_disk()
 
                     # Continue the while loop to get the next response from the model
+                    if iteration >= max_iterations:
+                        logger.warning(
+                            "Reached maximum tool calling iterations. Breaking loop to prevent runaway."
+                        )
+                        yield f"data: {json.dumps({'error': 'Maximum tool calling iterations reached'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                        break
                     continue
                 else:
                     # Add standard assistant message to history

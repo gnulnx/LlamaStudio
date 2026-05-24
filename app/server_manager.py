@@ -153,6 +153,11 @@ class ServerManager:
 
         # Add chat template if specified
         chat_template = params.get("chat_template")
+
+        # Auto-default to deepseek-r1 template for DeepSeek models to ensure tool calling works
+        if not chat_template and "deepseek" in model_path.lower():
+            chat_template = "deepseek-r1"
+
         custom_template = params.get("custom_template")
         if chat_template == "custom" and custom_template:
             cmd.extend(["--chat-template", custom_template])
@@ -256,12 +261,12 @@ class ServerManager:
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
 
-                self._process = subprocess.Popen(
-                    cmd_fallback,
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    cwd=Path(cmd_fallback[0]).parent,
-                )
+                    self._process = subprocess.Popen(
+                        cmd_fallback,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        cwd=Path(cmd_fallback[0]).parent,
+                    )
 
                 if self._wait_for_ready():
                     logger.info(
