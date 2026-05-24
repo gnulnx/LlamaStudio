@@ -146,7 +146,17 @@ Pull requests extending native Windows support (e.g., resolving `.exe` binaries)
 
 ## 🚀 Running the Application
 
-### Via Command Line
+### Option A: Via Unified CLI (`lls` - Recommended)
+You can link and install LlamaStudio's premium CLI utility locally to control the desktop app and server seamlessly:
+```bash
+# Link the unified lls command in your environment
+pip install -e .
+
+# Start the desktop application server and open browser UI
+lls reload
+```
+
+### Option B: Via Direct Startup Script
 Activate your virtual environment and run the startup script:
 ```bash
 # Activate your env (Conda)
@@ -164,6 +174,35 @@ Search for **LLamaStudio** in your desktop search bar (press Super, type "Llama"
 
 ---
 
+## 🛠️ Unified Command-Line Interface (`lls`)
+
+LlamaStudio features a high-end CLI built using `rich-click` for visual dashboards and operational efficiency. 
+
+### CLI Subcommands Reference
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `reload` | `lls reload` | Gracefully starts or restarts the desktop FastAPI application backend. |
+| `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
+| `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
+| `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
+| `eject` | `lls eject` | Gracefully unloads the active model to free GPU and CPU RAM. |
+| `oneshot`| `lls oneshot "prompt"` | Streams thinking traces, text, and executes agentic tools directly in your terminal. |
+
+For example, to boot a model interactively:
+```bash
+$ lls load
+Available Scanned Models:
+  1. Qwen3.6-35B-A3B-UD-Q5_K_M (25.2 GB)
+  2. gemma-4-26B-A4B-it-Q8_0 (25.0 GB)
+  3. DeepSeek-R1-Distill-Qwen-32B-Q5_K_M (21.7 GB)
+
+Select a model number to load: 3
+Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
+```
+
+---
+
 ## ⚙️ Configuration & Customization
 
 The application runs fully out-of-the-box with no manual configuration. However, you can customize default settings inside `app/config.py`:
@@ -173,18 +212,23 @@ The application runs fully out-of-the-box with no manual configuration. However,
 
 ---
 
-## 🧪 Automated Unit Tests
+## 🧪 Testing Suite
 
-Verify your local installation and confirm backend routing stability by running our automated unit test suite:
+LlamaStudio features both standard unit tests and comprehensive GGUF integration tests.
+
+### 1. Standard Unit Tests
+Verify local installation and confirm backend routing stability by running our mock-based test suite:
 ```bash
-# Ensure your environment is active
 python -m unittest tests/test_downloader.py
 ```
-**Expected Output**:
-```text
-Ran 10 tests in 0.12s
-OK
+
+### 2. GGUF Model Integration Tests
+For local environments containing active GPUs and downloaded models, you can run the full multi-model GGUF tool-calling integration suite to verify real-time execution robustness across various chat templates:
+```bash
+# Run GGUF model integration tests locally
+./tests/test_all.sh
 ```
+*(These tests are automatically skipped in standard CI/CD environments and default `pytest` runs using `@pytest.mark.skipif` to keep pipeline checks fast.)*
 
 ---
 
