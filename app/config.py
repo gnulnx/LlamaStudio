@@ -39,7 +39,9 @@ def resolve_llama_server_bin(force_cpu: bool = False) -> str:
         try:
             import subprocess
 
-            lspci = subprocess.check_output("lspci", shell=True, text=True).lower()
+            lspci = subprocess.check_output(
+                ["lspci"], stderr=subprocess.DEVNULL, text=True
+            ).lower()
             if "nvidia" in lspci:
                 vendor = "nvidia"
             elif "amd" in lspci or "ati" in lspci:
