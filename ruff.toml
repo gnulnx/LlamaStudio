@@ -1,0 +1,34 @@
+# Ruff configuration for LLamaStudio
+# https://docs.astral.sh/ruff/settings/
+
+target-version = "py311"
+line-length = 100
+
+[lint]
+# Enable a subset of rules. See: https://docs.astral.sh/ruff/rules/
+select = [
+    "E",      # pycodestyle errors
+    "F",      # Pyflakes
+    "I",      # isort (import sorting)
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "RUF",    # Ruff-specific rules
+    "SIM",    # flake8-simplify
+    "T20",    # flake8-print
+    "W",      # pycodestyle warnings
+]
+
+# Rules to ignore
+ignore = [
+    "E402",   # Module-level import not at top (common in main scripts with sys.path)
+    "E501",   # Line length (we use line-length above)
+    "N999",   # Invalid module name
+]
+
+[lint.isort]
+# Group imports: standard library, third-party, local
+known-first-party = ["app"]
+
+[format]
+# Enable preview formatting for newer style rules
+preview = true

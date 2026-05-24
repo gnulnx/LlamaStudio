@@ -2,20 +2,23 @@
 Manages the llama-server process lifecycle.
 The app runs independently - llama-server is only running when a model is loaded.
 """
-import subprocess
+
 import socket
+import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar
+
 from .config import settings
 from .logger import logger
 
+
 class ServerManager:
     _instance = None
-    _process: Optional[subprocess.Popen] = None
-    _current_model: Optional[str] = None
-    _current_model_name: Optional[str] = None
-    _current_params: dict = {}
+    _process: subprocess.Popen | None = None
+    _current_model: str | None = None
+    _current_model_name: str | None = None
+    _current_params: ClassVar[dict] = {}
     _is_loading: bool = False
 
     def __new__(cls):
@@ -45,16 +48,18 @@ class ServerManager:
         return port_active
 
     def _wait_for_ready(self, timeout: int = 180) -> bool:
-        import urllib.request
         import json
-        
+        import urllib.request
+
         start = time.time()
         url = f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/health"
-        
+
         while time.time() - start < timeout:
             # If our process died while loading, stop waiting
             if self._process is not None and self._process.poll() is not None:
-                logger.error(f"[server] Process terminated unexpectedly with code {self._process.returncode}")
+                logger.error(
+                    f"[server] Process terminated unexpectedly with code {self._process.returncode}"
+                )
                 return False
             try:
                 req = urllib.request.Request(url)
@@ -70,7 +75,9 @@ class ServerManager:
             time.sleep(1)
         return False
 
-    def _build_command(self, model_path: str, params: dict = None, force_cpu: bool = False) -> list:
+    def _build_command(
+        self, model_path: str, params: dict | None = None, force_cpu: bool = False
+    ) -> list:
         if params is None:
             params = {}
 
@@ -87,16 +94,23 @@ class ServerManager:
         rope_freq_scale = params.get("rope_freq_scale", 0.0)
 
         from .config import resolve_llama_server_bin
+
         binary_path = resolve_llama_server_bin(force_cpu=force_cpu)
 
         cmd = [
             binary_path,
-            "-m", model_path,
-            "--port", str(settings.LLAMA_SERVER_PORT),
-            "--ctx-size", str(ctx_size),
-            "--gpu-layers", str(gpu_layers),
-            "-ctk", str(kv_cache_type),
-            "-ctv", str(vocab_type),
+            "-m",
+            model_path,
+            "--port",
+            str(settings.LLAMA_SERVER_PORT),
+            "--ctx-size",
+            str(ctx_size),
+            "--gpu-layers",
+            str(gpu_layers),
+            "-ctk",
+            str(kv_cache_type),
+            "-ctv",
+            str(vocab_type),
         ]
 
         # Handle flash-attn
@@ -139,13 +153,13 @@ class ServerManager:
         if chat_template == "custom" and custom_template:
             cmd.extend(["--chat-template", custom_template])
         elif chat_template == "chatml":
-            chatml_tmpl = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>\n'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant\n'}}{% endif %}"
+            chatml_tmpl = "{% for message in messages %}{{'</think>' + message['role'] + '\\n' + message['content'] + '\\n'}}{% endfor %}{% if add_generation_prompt %}{{'\\n'}}{% endif %}"
             cmd.extend(["--chat-template", chatml_tmpl])
         elif chat_template == "gemma":
-            gemma_tmpl = "{% for message in messages %}{{'<start_of_turn>' + message['role'] + '\n' + message['content'] + '<end_of_turn>\n'}}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>assistant\n'}}{% endif %}"
+            gemma_tmpl = "{% for message in messages %}{{'<start_of_turn>' + message['role'] + '\\n' + message['content'] + '<end_of_turn>\\n'}}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>assistant\\n'}}{% endif %}"
             cmd.extend(["--chat-template", gemma_tmpl])
         elif chat_template == "llama3":
-            llama3_tmpl = "<|begin_of_text|>{% for message in messages %}{{'<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] + '<|eot_id|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|start_header_id|>assistant<|end_header_id|>\n\n'}}{% endif %}"
+            llama3_tmpl = "<|begin_of_text|>{% for message in messages %}{{'<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n' + message['content'] + '<|eot_id|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|start_header_id|>assistant<|end_header_id|>\\n\\n'}}{% endif %}"
             cmd.extend(["--chat-template", llama3_tmpl])
 
         return cmd
@@ -155,7 +169,7 @@ class ServerManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir / "server.log"
 
-    def load_model(self, model_path: str, params: dict = None) -> bool:
+    def load_model(self, model_path: str, params: dict | None = None) -> bool:
         """Load a model. If one is already loaded, eject it first."""
         model = model_path
         log_file = self._write_log()
@@ -173,7 +187,7 @@ class ServerManager:
                 return False
 
             if self.is_running:
-                logger.info(f"[server] Ejecting current model first...")
+                logger.info("[server] Ejecting current model first...")
                 self.eject_model()
 
             self._current_model = model
@@ -185,7 +199,7 @@ class ServerManager:
 
             logger.info(f"[server] Loading: {model} with cmd: {' '.join(cmd)}")
             with open(log_file, "w") as f:
-                f.write(f"--- LLamaStudio Server Starting ---\n")
+                f.write("--- LLamaStudio Server Starting ---\n")
                 f.write(f"Model Path: {model}\n")
                 f.write(f"Command: {' '.join(cmd)}\n\n")
                 f.flush()
@@ -200,38 +214,44 @@ class ServerManager:
                 logger.info(f"[server] Model loaded: {self._current_model_name}")
                 self._is_loading = False
                 return True
-            
+
             # AUTOMATIC FALLBACK LOGIC
             # If startup failed and we were NOT in CPU mode, try starting in CPU Mode as a fallback!
             if not cpu_mode:
-                logger.warning("[server] GPU loading failed or timed out. Attempting automatic CPU fallback...")
+                logger.warning(
+                    "[server] GPU loading failed or timed out. Attempting automatic CPU fallback..."
+                )
                 with open(log_file, "a") as f:
                     f.write("\n[WARNING] GPU load failed. Triggering automatic CPU Fallback...\n\n")
-                
+
                 self.eject_model()
                 self._current_model = model
                 self._current_model_name = Path(model).stem
                 self._current_params = params
                 self._is_loading = True
-                
+
                 # Build fallback command with force_cpu=True
                 cmd_fallback = self._build_command(model, params, force_cpu=True)
-                logger.info(f"[server] Loading fallback: {model} with cmd: {' '.join(cmd_fallback)}")
-                
+                logger.info(
+                    f"[server] Loading fallback: {model} with cmd: {' '.join(cmd_fallback)}"
+                )
+
                 with open(log_file, "a") as f:
                     f.write("--- Triggering CPU Fallback Server ---\n")
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
-                    
+
                 self._process = subprocess.Popen(
                     cmd_fallback,
                     stdout=f,
                     stderr=subprocess.STDOUT,
                     cwd=Path(cmd_fallback[0]).parent,
                 )
-                
+
                 if self._wait_for_ready():
-                    logger.info(f"[server] Model loaded successfully via CPU Fallback: {self._current_model_name}")
+                    logger.info(
+                        f"[server] Model loaded successfully via CPU Fallback: {self._current_model_name}"
+                    )
                     # Update parameters to reflect CPU mode was used
                     self._current_params["cpu_mode"] = True
                     self._current_params["gpu_layers"] = 0
@@ -245,15 +265,20 @@ class ServerManager:
                 f.write(f"\nERROR: {error_msg}\n")
                 f.write("DEBUG INFO:\n")
                 f.write("- Port 1234 might be blocked or in use by another zombie process.\n")
-                f.write("- Model configuration parameters (e.g. context size, thread count) might exceed system capability.\n")
-                f.write("- GPU out-of-memory: Check if the GGUF model is too large for the 32GB VRAM offload.\n")
+                f.write(
+                    "- Model configuration parameters (e.g. context size, thread count) might exceed system capability.\n"
+                )
+                f.write(
+                    "- GPU out-of-memory: Check if the GGUF model is too large for the 32GB VRAM offload.\n"
+                )
             self._is_loading = False
             self.eject_model()
             return False
 
         except Exception as e:
             import traceback
-            error_msg = f"[server] Exception during model load: {str(e)}"
+
+            error_msg = f"[server] Exception during model load: {e!s}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             with open(log_file, "a") as f:
@@ -266,17 +291,25 @@ class ServerManager:
     def _kill_port_process(self) -> bool:
         import os
         import signal
+
         try:
-            output = subprocess.check_output(["lsof", "-t", f"-i:{settings.LLAMA_SERVER_PORT}"]).decode().strip()
+            output = (
+                subprocess
+                .check_output(["lsof", "-t", f"-i:{settings.LLAMA_SERVER_PORT}"])
+                .decode()
+                .strip()
+            )
             if output:
                 killed = False
-                for pid_str in output.split('\n'):
+                for pid_str in output.split("\n"):
                     if pid_str.strip():
                         pid = int(pid_str.strip())
                         # Don't kill our own process
                         if pid == os.getpid():
                             continue
-                        logger.info(f"[server] Killing rogue process {pid} on port {settings.LLAMA_SERVER_PORT}")
+                        logger.info(
+                            f"[server] Killing rogue process {pid} on port {settings.LLAMA_SERVER_PORT}"
+                        )
                         try:
                             os.kill(pid, signal.SIGTERM)
                             # Wait a bit
@@ -290,7 +323,9 @@ class ServerManager:
                         killed = True
                 return killed
         except Exception as e:
-            logger.error(f"[server] Error killing process on port {settings.LLAMA_SERVER_PORT}: {e}")
+            logger.error(
+                f"[server] Error killing process on port {settings.LLAMA_SERVER_PORT}: {e}"
+            )
         return False
 
     def eject_model(self) -> bool:
@@ -334,14 +369,13 @@ class ServerManager:
         if self.is_running:
             try:
                 import httpx
-                resp = httpx.get(
-                    f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/health",
-                    timeout=2
-                )
+
+                resp = httpx.get(f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/health", timeout=2)
                 if resp.status_code == 200:
                     status["health"] = resp.json()
             except Exception as e:
                 status["health_error"] = str(e)
         return status
+
 
 server = ServerManager()

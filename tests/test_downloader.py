@@ -1,20 +1,22 @@
+import asyncio
 import os
 import sys
-import unittest
-import asyncio
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # Ensure the app package can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.model_manager import (
-    search_huggingface_models,
-    get_huggingface_model_details,
-    get_huggingface_model_readme
-)
+import contextlib
+
 from app.downloader import downloader
+from app.model_manager import (
+    get_huggingface_model_details,
+    get_huggingface_model_readme,
+    search_huggingface_models,
+)
 
 
 class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
@@ -58,7 +60,7 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "id": "google/gemma-2-9b-it-GGUF",
-            "siblings": [{"rpath": "gemma-2-9b-it.Q4_K_M.gguf"}]
+            "siblings": [{"rpath": "gemma-2-9b-it.Q4_K_M.gguf"}],
         }
         mock_get.return_value = mock_response
 
@@ -91,10 +93,8 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
         downloader.error_message = None
         if downloader._active_task and not downloader._active_task.done():
             downloader._active_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await downloader._active_task
-            except asyncio.CancelledError:
-                pass
         downloader._active_task = None
         downloader._cancel_event = None
 
@@ -134,7 +134,9 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
 
     @patch("app.model_manager.refresh_models")
     @patch("app.downloader.settings")
-    async def test_download_loop_uses_direct_huggingface_download(self, mock_settings, mock_refresh):
+    async def test_download_loop_uses_direct_huggingface_download(
+        self, mock_settings, mock_refresh
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             mock_settings.MODEL_DIRS = [tmp]
 

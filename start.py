@@ -7,25 +7,26 @@ This script:
 2. Opens a browser window to the chat interface
 3. On exit, shuts down both the FastAPI app and llama-server
 """
+
+import contextlib
+import os
 import signal
+import socket
+import subprocess
 import sys
 import time
 import webbrowser
-import socket
-import subprocess
 from pathlib import Path
 
 # Add the project root to the path
-import os
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
-# Initialize logging before any app imports
-from app.logger import setup_logging
-logger = setup_logging()
-
-from app.main import app
 from app.config import settings
+from app.logger import setup_logging
+from app.main import app
+
+logger = setup_logging()
 
 PID_FILE = Path.home() / ".config" / "llamastudio" / "app.pid"
 
@@ -111,10 +112,8 @@ def stop_existing_app() -> bool:
 
     logger.info(f"[startup] Restarting existing LLamaStudio process(es): {pids}")
     for pid in pids:
-        try:
+        with contextlib.suppress(OSError):
             os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
 
     deadline = time.time() + 8
     while time.time() < deadline:
@@ -125,10 +124,8 @@ def stop_existing_app() -> bool:
     for pid in pids:
         if pid_is_running(pid):
             logger.warning(f"[startup] Force killing unresponsive LLamaStudio process {pid}")
-            try:
+            with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
 
     return wait_for_port_clear()
 
@@ -157,6 +154,7 @@ def open_browser():
         logger.error(f"[startup] Could not open browser: {e}")
         logger.info(f"[startup] Open manually: {url}")
 
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -172,12 +170,13 @@ if __name__ == "__main__":
 
     # Open browser in a separate thread
     import threading
+
     threading.Thread(target=open_browser, daemon=True).start()
 
     logger.info(f"[LLamaStudio] Starting on http://{settings.APP_HOST}:{settings.APP_PORT}")
     if stopped_existing:
         logger.info("[LLamaStudio] Previous instance was stopped; launching refreshed app")
-    logger.info(f"[LLamaStudio] llama-server will start automatically")
+    logger.info("[LLamaStudio] llama-server will start automatically")
 
     # Run uvicorn
     try:
