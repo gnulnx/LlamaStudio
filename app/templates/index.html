@@ -831,6 +831,79 @@
             border-color: #2ecc71;
         }
 
+        /* Chat Config Pane (Right Sidebar) */
+        .chat-config-pane {
+            width: 320px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .chat-config-header {
+            height: 64px;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        
+        .chat-config-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .chat-config-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+        
+        .chat-config-close-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+        
+        .chat-config-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        #toggleChatParamsBtn:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+            border-color: var(--accent);
+        }
+
+        #toggleChatParamsBtn.active {
+            color: var(--accent);
+            border-color: var(--accent) !important;
+            background: rgba(127, 90, 240, 0.05);
+        }
+
         /* Configurator Sidebar */
         .config-sidebar {
             width: 360px;
@@ -1531,12 +1604,6 @@
                 <span>Logs</span>
             </button>
         </div>
-        <div class="nav-footer">
-            <button class="nav-btn" onclick="toggleSettingsModal()">
-                <i class="fa-solid fa-sliders"></i>
-                <span>Config</span>
-            </button>
-        </div>
     </div>
 
     <!-- 2. MAIN PANES -->
@@ -1571,11 +1638,15 @@
                             </span>
                         </div>
                     </div>
-                    <div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
                         <button class="eject-btn" id="headerEjectBtn" 
                                 style="display: {% if server_running %}block{% else %}none{% endif %};" 
                                 onclick="triggerEjectModel()">
                             <i class="fa-solid fa-eject"></i> Eject Model
+                        </button>
+                        <button class="icon-btn" id="toggleChatParamsBtn" onclick="toggleChatConfigPane()" title="Chat Settings" style="background: none; border: 1px solid var(--border); color: var(--text-secondary); height: 36px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.15s;">
+                            <i class="fa-solid fa-sliders"></i>
+                            <span>Settings</span>
                         </button>
                     </div>
                 </div>
@@ -1602,6 +1673,91 @@
                         <button class="send-btn" id="sendMsgBtn" onclick="sendChatMessage()">
                             <i class="fa-solid fa-paper-plane"></i>
                         </button>
+                        <button class="send-btn" id="stopMsgBtn" onclick="stopChatMessage()" style="display: none; background: #e74c3c;">
+                            <i class="fa-solid fa-stop"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Config Pane (Right Sidebar) -->
+            <div class="chat-config-pane" id="chatConfigPane" style="display: none;">
+                <div class="chat-config-header">
+                    <div class="chat-config-title">
+                        <i class="fa-solid fa-sliders"></i>
+                        <span>Chat Settings</span>
+                    </div>
+                    <button class="chat-config-close-btn" onclick="toggleChatConfigPane()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="chat-config-body">
+                    <!-- System Prompt -->
+                    <div class="control-group">
+                        <label class="control-label">System Prompt</label>
+                        <textarea class="control-input" id="globalSystemPrompt" rows="4" style="resize: vertical; font-size: 13px;">{{ system_prompt }}</textarea>
+                    </div>
+                    
+                    <!-- Temperature -->
+                    <div class="control-group">
+                        <div class="control-header">
+                            <span class="control-label">Temperature</span>
+                            <span class="control-value-text" id="valText-temp">{{ temperature }}</span>
+                        </div>
+                        <input type="range" min="0" max="2" step="0.1" value="{{ temperature }}" id="globalTemp" class="slider-input"
+                               oninput="document.getElementById('valText-temp').textContent=this.value">
+                    </div>
+                    
+                    <!-- Top P -->
+                    <div class="control-group">
+                        <div class="control-header">
+                            <span class="control-label">Top P</span>
+                            <span class="control-value-text" id="valText-topP">{{ top_p }}</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.05" value="{{ top_p }}" id="globalTopP" class="slider-input"
+                               oninput="document.getElementById('valText-topP').textContent=this.value">
+                    </div>
+                    
+                    <!-- Top K -->
+                    <div class="control-group">
+                        <div class="control-header">
+                            <span class="control-label">Top K</span>
+                            <span class="control-value-text" id="valText-topK">40</span>
+                        </div>
+                        <input type="range" min="1" max="100" step="1" value="40" id="globalTopK" class="slider-input"
+                               oninput="document.getElementById('valText-topK').textContent=this.value">
+                    </div>
+                    
+                    <!-- Min P -->
+                    <div class="control-group">
+                        <div class="control-header">
+                            <span class="control-label">Min P</span>
+                            <span class="control-value-text" id="valText-minP">0.05</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.01" value="0.05" id="globalMinP" class="slider-input"
+                               oninput="document.getElementById('valText-minP').textContent=this.value">
+                    </div>
+                    
+                    <!-- Repeat Penalty -->
+                    <div class="control-group">
+                        <div class="control-header">
+                            <span class="control-label">Repeat Penalty</span>
+                            <span class="control-value-text" id="valText-repeatPenalty">1.1</span>
+                        </div>
+                        <input type="range" min="0.5" max="2" step="0.05" value="1.1" id="globalRepeatPenalty" class="slider-input"
+                               oninput="document.getElementById('valText-repeatPenalty').textContent=this.value">
+                    </div>
+                    
+                    <!-- Max Generation Tokens -->
+                    <div class="control-group">
+                        <label class="control-label">Max Generation Tokens</label>
+                        <input type="number" class="control-input" id="globalMaxTokens" value="{{ max_tokens }}">
+                    </div>
+                    
+                    <!-- Stop Sequences -->
+                    <div class="control-group">
+                        <label class="control-label">Stop Sequences (comma-separated)</label>
+                        <input type="text" class="control-input" id="globalStop" placeholder="e.g. <|im_end|>,<|im_start|>">
                     </div>
                 </div>
             </div>
@@ -2072,75 +2228,10 @@
     </div>
 </div>
 
-<!-- Global Settings Modal -->
-<div class="settings-overlay" id="globalSettingsOverlay" onclick="if(event.target===this)toggleSettingsModal()">
-    <div class="modal-card" style="width: 440px;">
-        <div class="modal-header">
-            <i class="fa-solid fa-sliders"></i>
-            <h3>Global Inference Settings</h3>
-        </div>
-        <div class="modal-body">
-            <div class="control-group">
-                <label class="control-label">System Prompt</label>
-                <textarea class="control-input" id="globalSystemPrompt" rows="3" style="resize:vertical;">{{ system_prompt }}</textarea>
-            </div>
-            <div class="control-group">
-                <div class="control-header">
-                    <span class="control-label">Temperature</span>
-                    <span class="control-value-text" id="valText-temp">{{ temperature }}</span>
-                </div>
-                <input type="range" min="0" max="2" step="0.1" value="{{ temperature }}" id="globalTemp"
-                       oninput="document.getElementById('valText-temp').textContent=this.value">
-            </div>
-            <div class="control-group">
-                <div class="control-header">
-                    <span class="control-label">Top P</span>
-                    <span class="control-value-text" id="valText-topP">{{ top_p }}</span>
-                </div>
-                <input type="range" min="0" max="1" step="0.05" value="{{ top_p }}" id="globalTopP"
-                       oninput="document.getElementById('valText-topP').textContent=this.value">
-            </div>
-            <div class="control-group">
-                <div class="control-header">
-                    <span class="control-label">Top K</span>
-                    <span class="control-value-text" id="valText-topK">40</span>
-                </div>
-                <input type="range" min="1" max="100" step="1" value="40" id="globalTopK"
-                       oninput="document.getElementById('valText-topK').textContent=this.value">
-            </div>
-            <div class="control-group">
-                <div class="control-header">
-                    <span class="control-label">Min P</span>
-                    <span class="control-value-text" id="valText-minP">0.05</span>
-                </div>
-                <input type="range" min="0" max="1" step="0.01" value="0.05" id="globalMinP"
-                       oninput="document.getElementById('valText-minP').textContent=this.value">
-            </div>
-            <div class="control-group">
-                <div class="control-header">
-                    <span class="control-label">Repeat Penalty</span>
-                    <span class="control-value-text" id="valText-repeatPenalty">1.1</span>
-                </div>
-                <input type="range" min="0.5" max="2" step="0.05" value="1.1" id="globalRepeatPenalty"
-                       oninput="document.getElementById('valText-repeatPenalty').textContent=this.value">
-            </div>
-            <div class="control-group">
-                <label class="control-label">Max Generation Tokens</label>
-                <input type="number" class="control-input" id="globalMaxTokens" value="{{ max_tokens }}">
-            </div>
-            <div class="control-group">
-                <label class="control-label">Stop Sequences (comma-separated)</label>
-                <input type="text" class="control-input" id="globalStop" placeholder="e.g. <|im_end|>,<|im_start|>">
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="sidebar-action-btn primary" onclick="toggleSettingsModal()">Apply Configurations</button>
-        </div>
-    </div>
-</div>
 
 <script>
     let isCurrentlyStreaming = false;
+    let activeAbortController = null;
     let conversations = {{ conversations | tojson }};
     let discoveredModels = [];
     let savedModelSettings = {};
@@ -3188,11 +3279,14 @@
         scrollToMessagesBottom();
 
         isCurrentlyStreaming = true;
+        document.getElementById('sendMsgBtn').style.display = 'none';
+        document.getElementById('stopMsgBtn').style.display = 'flex';
         document.getElementById('sendMsgBtn').disabled = true;
 
         let assistantAccumulator = '';
         let reasoningAccumulator = '';
         let streamBlocks = [];
+        activeAbortController = new AbortController();
 
         try {
             const res = await fetch('/api/chat/send', {
@@ -3208,7 +3302,8 @@
                     min_p: parseFloat(document.getElementById('globalMinP').value),
                     repeat_penalty: parseFloat(document.getElementById('globalRepeatPenalty').value),
                     stop: document.getElementById('globalStop').value ? document.getElementById('globalStop').value.split(',').map(s => s.trim()) : []
-                })
+                }),
+                signal: activeAbortController.signal
             });
 
             const reader = res.body.getReader();
@@ -3327,9 +3422,18 @@
                 }
             }
         } catch(e) {
-            assistDiv.querySelector('.msg-body').innerHTML = `<div style="color:var(--status-red);"><i class="fa-solid fa-circle-exclamation"></i> Connection failed: ${escapeHtml(e.message)}</div>`;
+            if (e.name === 'AbortError') {
+                const loader = assistDiv.querySelector('.typing-loader');
+                if (loader) loader.remove();
+                assistDiv.querySelector('.msg-body').insertAdjacentHTML('beforeend', `<div style="color:var(--text-muted); font-size:11px; margin-top:8px; font-style:italic;"><i class="fa-solid fa-hand"></i> Generation stopped by user.</div>`);
+            } else {
+                assistDiv.querySelector('.msg-body').innerHTML = `<div style="color:var(--status-red);"><i class="fa-solid fa-circle-exclamation"></i> Connection failed: ${escapeHtml(e.message)}</div>`;
+            }
         } finally {
             isCurrentlyStreaming = false;
+            activeAbortController = null;
+            document.getElementById('sendMsgBtn').style.display = 'flex';
+            document.getElementById('stopMsgBtn').style.display = 'none';
             document.getElementById('sendMsgBtn').disabled = false;
             input.focus();
             renderConversationsList();
@@ -3372,8 +3476,22 @@
         if (el) el.classList.remove('active');
     }
 
-    function toggleSettingsModal() {
-        document.getElementById('globalSettingsOverlay').classList.toggle('active');
+    function stopChatMessage() {
+        if (activeAbortController) {
+            activeAbortController.abort();
+        }
+    }
+
+    function toggleChatConfigPane() {
+        const pane = document.getElementById('chatConfigPane');
+        const btn = document.getElementById('toggleChatParamsBtn');
+        if (pane.style.display === 'none') {
+            pane.style.display = 'flex';
+            btn.classList.add('active');
+        } else {
+            pane.style.display = 'none';
+            btn.classList.remove('active');
+        }
     }
 
     // ─── UTILS ────────────────────────────────────────────────
