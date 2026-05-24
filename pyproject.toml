@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llamastudio"
+version = "1.0.0"
+description = "FastAPI backend & desktop launcher for running local models via llama.cpp"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic-settings",
+    "uvicorn",
+    "jinja2",
+    "httpx",
+    "rich-click"
+]
+
+[project.scripts]
+lls = "app.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
