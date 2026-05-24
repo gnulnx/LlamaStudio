@@ -87,7 +87,6 @@ async def get_gpu():
     return get_gpu_info()
 
 
-
 @app.get("/api/server/logs")
 async def server_logs(type: str = "llama", lines: int = 50):
     log_name = "app.log" if type == "app" else "server.log"

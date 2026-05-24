@@ -25,6 +25,12 @@ ignore = [
     "N999",   # Invalid module name
 ]
 
+[lint.per-file-ignores]
+"check_gpu.py" = ["T201"]
+"start.py" = ["T201"]
+"tests/*" = ["T201"]
+
+
 [lint.isort]
 # Group imports: standard library, third-party, local
 known-first-party = ["app"]
