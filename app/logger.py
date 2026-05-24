@@ -1,7 +1,9 @@
 import logging
 import sys
 from pathlib import Path
+
 from .config import settings
+
 
 def setup_logging():
     log_dir = Path(settings.LOG_DIR)
@@ -10,8 +12,7 @@ def setup_logging():
 
     # Define a clean formatter
     formatter = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     # File Handler
@@ -26,7 +27,7 @@ def setup_logging():
 
     # Root Logger
     root_logger = logging.getLogger()
-    
+
     # Clear root handlers to avoid duplicates
     root_logger.handlers = []
     root_logger.addHandler(file_handler)
@@ -35,16 +36,17 @@ def setup_logging():
 
     # Redirect third-party loggers we care about to both file and console
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "llamastudio"):
-        l = logging.getLogger(logger_name)
-        l.handlers = []
-        l.addHandler(file_handler)
-        l.addHandler(console_handler)
-        l.setLevel(logging.INFO)
-        l.propagate = False
+        logger = logging.getLogger(logger_name)
+        logger.handlers = []
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
 
     app_logger = logging.getLogger("llamastudio")
     app_logger.info("Application logging initialized. File: %s", app_log_path)
     return app_logger
+
 
 # Export pre-initialized logger for easy importing
 logger = logging.getLogger("llamastudio")

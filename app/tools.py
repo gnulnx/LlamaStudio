@@ -2,14 +2,16 @@
 Safe Tool Executive for LLamaStudio.
 Defines OpenAI-compatible schemas and implements execution for workspace-sandboxed tools.
 """
+
 from __future__ import annotations
-import os
-import json
+
 import subprocess
 from pathlib import Path
+
 from .logger import logger
 
 WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
+
 
 def check_path_safe(file_path: str) -> Path:
     """Resolve file path and guarantee it remains strictly within the workspace root."""
@@ -17,13 +19,16 @@ def check_path_safe(file_path: str) -> Path:
     # If relative, resolve against workspace root
     if not target.is_absolute():
         target = WORKSPACE_ROOT / target
-    
+
     target = target.resolve()
-    
+
     # Check if target is indeed inside WORKSPACE_ROOT
     if not str(target).startswith(str(WORKSPACE_ROOT)):
-        raise ValueError(f"Permission Denied: Target path '{file_path}' lies outside the workspace directory.")
+        raise ValueError(
+            f"Permission Denied: Target path '{file_path}' lies outside the workspace directory."
+        )
     return target
+
 
 def write_file(file_path: str, content: str) -> str:
     """Create or overwrite a file in the workspace directory with the specified content."""
@@ -38,6 +43,7 @@ def write_file(file_path: str, content: str) -> str:
         logger.error(f"[tools] Error in write_file: {e}")
         return f"Error executing write_file: {e}"
 
+
 def read_file(file_path: str) -> str:
     """Read and return the complete text content of a file in the workspace directory."""
     try:
@@ -46,12 +52,13 @@ def read_file(file_path: str) -> str:
             return f"Error: File '{file_path}' does not exist."
         if not safe_path.is_file():
             return f"Error: '{file_path}' is a directory, not a file."
-        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(safe_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
         return content
     except Exception as e:
         logger.error(f"[tools] Error in read_file: {e}")
         return f"Error executing read_file: {e}"
+
 
 def list_dir(dir_path: str = ".") -> str:
     """List the names and types of files inside the specified workspace subdirectory."""
@@ -61,20 +68,21 @@ def list_dir(dir_path: str = ".") -> str:
             return f"Error: Directory '{dir_path}' does not exist."
         if not safe_path.is_dir():
             return f"Error: '{dir_path}' is a file, not a directory."
-        
+
         entries = []
         for p in safe_path.iterdir():
             rel = p.relative_to(WORKSPACE_ROOT)
             suffix = "/" if p.is_dir() else ""
             size = f" ({p.stat().st_size} bytes)" if p.is_file() else ""
             entries.append(f"{rel}{suffix}{size}")
-        
+
         if not entries:
             return f"Directory '{dir_path}' is empty."
         return "\n".join(sorted(entries))
     except Exception as e:
         logger.error(f"[tools] Error in list_dir: {e}")
         return f"Error executing list_dir: {e}"
+
 
 def get_absolute_path(file_path: str = ".") -> str:
     """Return the absolute system path of a file or directory in the workspace directory."""
@@ -84,6 +92,7 @@ def get_absolute_path(file_path: str = ".") -> str:
     except Exception as e:
         logger.error(f"[tools] Error in get_absolute_path: {e}")
         return f"Error executing get_absolute_path: {e}"
+
 
 def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
@@ -95,14 +104,14 @@ def run_command(command: str) -> str:
             cwd=str(WORKSPACE_ROOT),
             capture_output=True,
             text=True,
-            timeout=15.0
+            timeout=15.0,
         )
         output = []
         if res.stdout:
             output.append(f"--- Standard Output ---\n{res.stdout}")
         if res.stderr:
             output.append(f"--- Standard Error ---\n{res.stderr}")
-        
+
         result_text = "\n".join(output) if output else "Command completed with no output."
         return f"Command returned exit code {res.returncode}\n{result_text}"
     except subprocess.TimeoutExpired:
@@ -111,6 +120,7 @@ def run_command(command: str) -> str:
     except Exception as e:
         logger.error(f"[tools] Error in run_command: {e}")
         return f"Error executing command: {e}"
+
 
 # OpenAI compatible tool specifications
 ALL_TOOLS = [
@@ -124,16 +134,16 @@ ALL_TOOLS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "The path of the file to write, relative to the workspace directory (e.g. 'HelloFromMe.txt')."
+                        "description": "The path of the file to write, relative to the workspace directory (e.g. 'HelloFromMe.txt').",
                     },
                     "content": {
                         "type": "string",
-                        "description": "The complete content to write to the file."
-                    }
+                        "description": "The complete content to write to the file.",
+                    },
                 },
-                "required": ["file_path", "content"]
-            }
-        }
+                "required": ["file_path", "content"],
+            },
+        },
     },
     {
         "type": "function",
@@ -145,12 +155,12 @@ ALL_TOOLS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "The path of the file to read, relative to the workspace directory."
+                        "description": "The path of the file to read, relative to the workspace directory.",
                     }
                 },
-                "required": ["file_path"]
-            }
-        }
+                "required": ["file_path"],
+            },
+        },
     },
     {
         "type": "function",
@@ -162,11 +172,11 @@ ALL_TOOLS = [
                 "properties": {
                     "dir_path": {
                         "type": "string",
-                        "description": "The directory path to scan, relative to the workspace (defaults to '.')."
+                        "description": "The directory path to scan, relative to the workspace (defaults to '.').",
                     }
-                }
-            }
-        }
+                },
+            },
+        },
     },
     {
         "type": "function",
@@ -176,14 +186,11 @@ ALL_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    }
+                    "command": {"type": "string", "description": "The shell command to execute."}
                 },
-                "required": ["command"]
-            }
-        }
+                "required": ["command"],
+            },
+        },
     },
     {
         "type": "function",
@@ -195,13 +202,14 @@ ALL_TOOLS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "The path to resolve (relative to workspace). Defaults to '.' for workspace root."
+                        "description": "The path to resolve (relative to workspace). Defaults to '.' for workspace root.",
                     }
-                }
-            }
-        }
-    }
+                },
+            },
+        },
+    },
 ]
+
 
 def execute_tool(name: str, arguments: dict) -> str:
     """Central tool dispatcher."""

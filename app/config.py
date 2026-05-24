@@ -2,20 +2,23 @@
 Application configuration.
 Edit these values to match your setup.
 """
-from pydantic_settings import BaseSettings
-from pathlib import Path
+
 import shutil
+from pathlib import Path
+
+from pydantic_settings import BaseSettings
+
 
 def resolve_llama_server_bin(force_cpu: bool = False) -> str:
     """Dynamically search for the best llama-server binary based on hardware and force_cpu setting."""
     home = Path.home()
     bin_root = home / "llama.cpp-bin"
-    
+
     if force_cpu:
         cpu_path = bin_root / "cpu" / "llama-server"
         if cpu_path.exists():
             return str(cpu_path)
-            
+
     # Probing GPU vendor
     vendor = "unknown"
     for card_dir in ["card0", "card1", "card2"]:
@@ -31,10 +34,11 @@ def resolve_llama_server_bin(force_cpu: bool = False) -> str:
                     break
             except Exception:
                 pass
-                
+
     if vendor == "unknown":
         try:
             import subprocess
+
             lspci = subprocess.check_output("lspci", shell=True, text=True).lower()
             if "nvidia" in lspci:
                 vendor = "nvidia"
@@ -52,7 +56,7 @@ def resolve_llama_server_bin(force_cpu: bool = False) -> str:
         vulkan_path = bin_root / "vulkan" / "llama-server"
         if vulkan_path.exists():
             return str(vulkan_path)
-            
+
     elif vendor == "amd" and not force_cpu:
         # Check ROCm first, then Vulkan
         rocm_path = bin_root / "rocm" / "llama-server"
@@ -88,6 +92,7 @@ def resolve_llama_server_bin(force_cpu: bool = False) -> str:
         return str(fallback_cpu)
 
     return str(home / "llama.cpp" / "build" / "bin" / "llama-server")
+
 
 class Settings(BaseSettings):
     # llama.cpp server settings
@@ -131,13 +136,14 @@ class Settings(BaseSettings):
     def migrate_persistence_files(cls):
         """Migrate any old persistence files from the app directory to ~/.config/llamastudio/"""
         import shutil
+
         old_dir = Path(__file__).parent
         new_dir = Path.home() / ".config" / "llamastudio"
-        
+
         for filename in ["conversations.json", "model_settings.json"]:
             old_path = old_dir / filename
             new_path = new_dir / filename
-            
+
             if old_path.exists() and not new_path.exists():
                 try:
                     new_dir.mkdir(parents=True, exist_ok=True)
@@ -145,8 +151,8 @@ class Settings(BaseSettings):
                 except Exception:
                     pass
 
+
 # Run config migrations
 Settings.migrate_persistence_files()
 
 settings = Settings()
-

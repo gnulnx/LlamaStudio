@@ -1974,6 +1974,12 @@
                             <select class="control-input" id="hfQuantSelect" onchange="evaluateVramEstimate()"></select>
                         </div>
                         
+                        <!-- Detected GPU Info -->
+                        <div id="hfGpuInfo" style="margin-top: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; border: 1px dashed var(--border); padding: 8px; border-radius: 6px; width: 100%; display: none; align-items: center; gap: 6px; justify-content: center; background: rgba(255, 255, 255, 0.02);">
+                            <i class="fa-solid fa-microchip" style="color: var(--accent);"></i>
+                            <span>Detected GPU: <strong id="hfGpuNameText" style="color: var(--text-primary);">Detecting...</strong></span>
+                        </div>
+
                         <!-- Smart VRAM / RTX 5090 Suitability Badges -->
                         <div id="hfVramEstimator" style="margin-top: 12px; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-direction: column; width: 100%;">
                             <!-- Will be updated dynamically -->
@@ -2143,9 +2149,38 @@
     let loadedModelName = '{{ current_model_name or "" }}';
     let isServerRunning = {% if server_running %}true{% else %}false{% endif %};
     let activeSettingsTab = 'info';
+    window.backendGpuInfo = null;
+
+    async function fetchGpuInfo() {
+        try {
+            const res = await fetch('/api/gpu');
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.name) {
+                    window.backendGpuInfo = {
+                        name: data.name,
+                        vram: data.vram
+                    };
+                    updateGpuUi();
+                }
+            }
+        } catch (e) {
+            console.error("Error fetching GPU info:", e);
+        }
+    }
+
+    function updateGpuUi() {
+        const gpuInfoDiv = document.getElementById('hfGpuInfo');
+        const gpuNameText = document.getElementById('hfGpuNameText');
+        if (window.backendGpuInfo && gpuInfoDiv && gpuNameText) {
+            gpuNameText.textContent = `${window.backendGpuInfo.name} (${window.backendGpuInfo.vram} GB VRAM)`;
+            gpuInfoDiv.style.display = 'flex';
+        }
+    }
 
     // ─── INITIALIZATION ───────────────────────────────────────
     document.addEventListener('DOMContentLoaded', async () => {
+        await fetchGpuInfo();
         renderConversationsList();
         await fetchDiscoveredModels();
         await fetchSavedModelSettings();
@@ -3352,7 +3387,7 @@
     let activeDownloadRepo = null;
     let activeDownloadFile = null;
     let downloadEventSource = null;
-    let selectedHfModelDetails = null;
+    window.selectedHfModelDetails = null;
 
     let hfSearchTimeout = null;
 
@@ -3506,6 +3541,9 @@
     }
 
     function detectGPU() {
+        if (window.backendGpuInfo) {
+            return window.backendGpuInfo;
+        }
         if (navigator.gpu) {
             try {
                 const adapter = navigator.gpu;

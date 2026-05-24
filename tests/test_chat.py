@@ -55,8 +55,10 @@ class TestChatStreaming(unittest.TestCase):
             chat._conversations = {}
             chat._active_id = ""
 
-            with patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path), \
-                 patch("app.chat.httpx.Client", FakeHttpClient):
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch("app.chat.httpx.Client", FakeHttpClient),
+            ):
                 events = list(chat.stream_chat("hello"))
 
         self.assertTrue(any('"type": "end"' in event for event in events))
