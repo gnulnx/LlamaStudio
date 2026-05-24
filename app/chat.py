@@ -338,15 +338,18 @@ class ChatManager:
                             assistant_text = assistant_text.replace(m.group(0), "").strip()
                             
                             # Notify frontend dynamically that a tool call was detected
-                            yield f"data: {json.dumps({'tool_call_delta': {
-                                'index': len(tool_calls_accumulated) - 1,
-                                'id': tc_id,
-                                'type': 'function',
-                                'function': {
-                                    'name': tool_name,
-                                    'arguments': json.dumps(args_dict)
+                            tool_call_delta = {
+                                "tool_call_delta": {
+                                    "index": len(tool_calls_accumulated) - 1,
+                                    "id": tc_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_name,
+                                        "arguments": json.dumps(args_dict),
+                                    },
                                 }
-                            }})}\n\n"
+                            }
+                            yield f"data: {json.dumps(tool_call_delta)}\n\n"
 
                 # Post-processing assistant output
                 if tool_calls_accumulated:
