@@ -439,6 +439,10 @@ def oneshot(prompt, model, **kwargs):
         console.print(f"[bold red]Failed to contact LlamaStudio server: {e}[/bold red]")
         return
 
+    # Start a fresh conversation to avoid history pollution across sequential oneshot runs
+    with contextlib.suppress(Exception):
+        httpx.post(f"{API_BASE_URL}/api/chat/new")
+
     # 3. Construct chat payload
     payload = {"message": prompt}
     if kwargs.get("system_prompt") is not None:
