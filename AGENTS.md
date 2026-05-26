@@ -8,7 +8,7 @@ Welcome, AI Agent or developer! To maintain the architectural integrity, safety,
 
 1. **Prefer CLI Commands over One-Off Scripts**
    * If you need a script, utility, test harness, or configuration tool, **do not create loose Python/Bash scripts** in the repository root.
-   * Instead, extend the unified `lls` command-line utility defined in [app/cli.py](file:///home/gnulnx/LlamaStudio/app/cli.py).
+   * Instead, extend the unified `lls` command-line utility defined in [app/cli.py](app/cli.py).
    * This maintains a single entry point for all administrative, testing, and operations tasks.
 
 2. **Leverage the Rich CLI for Development and Testing**
@@ -20,7 +20,7 @@ Welcome, AI Agent or developer! To maintain the architectural integrity, safety,
 
 3. **Workspace Paths Safety**
    * Any file operations (writing files, reading files, running shell commands) must strictly remain sandboxed within the workspace directory.
-   * Always route path operations through the `check_path_safe(file_path)` validator implemented in [app/tools.py](file:///home/gnulnx/LlamaStudio/app/tools.py) to prevent directory traversal vulnerabilities.
+   * Always route path operations through the `check_path_safe(file_path)` validator implemented in [app/tools.py](app/tools.py) to prevent directory traversal vulnerabilities.
 
 ---
 
@@ -49,8 +49,8 @@ pip install -e .
 ## 🧪 Integration Testing Suite
 
 For verifying multi-model compatibility and tool calling robustness:
-1. All local model integration tests are located in [tests/test_local_models.py](file:///home/gnulnx/LlamaStudio/tests/test_local_models.py).
-2. The list of models to test is fully editable and defined in [tests/local_test_models.json](file:///home/gnulnx/LlamaStudio/tests/local_test_models.json).
+1. All local model integration tests are located in [tests/test_local_models.py](tests/test_local_models.py).
+2. The list of models to test is fully editable and defined in [tests/local_test_models.json](tests/local_test_models.json).
 3. These tests are **skipped by default** in typical environments and GitHub Actions (using `@pytest.mark.skipif`) to keep standard testing fast and self-contained.
 4. To run the full integration suite locally:
    ```bash

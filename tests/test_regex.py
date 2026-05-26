@@ -1,6 +1,7 @@
 import ast
 import json
 import re
+import unittest
 
 
 def parse_args_str(args_str: str) -> dict:
@@ -59,16 +60,14 @@ def parse_args_str(args_str: str) -> dict:
             return args
 
 
-# Let's write the parsing function that matches ChatML tool calls
-def process_message_content(content_str: str):
-
+def process_message_content(content_str: str) -> tuple[list[dict], str]:
     # 1. Extract hallucinated response block if present (do this FIRST while im_end tags are still there)
     content_str = re.sub(
-        r"<\|im_start|>response:.*?(?:<\|im_end\|>|<\|im_end>|$)", "", content_str, flags=re.DOTALL
+        r"<\|im_start\|>response:.*?(?:<\|im_end\|>|$)", "", content_str, flags=re.DOTALL
     )
 
     # 2. Match all variations of tool calling syntax:
-    # (a) <|tool_call>call:name(args)<tool_call|>
+    # (a) <|tool_call|>call:name(args)<|tool_call|>
     # (b) <|im_start|>call:name(args)<|im_end|>
     # (c) <tool_code>name(args)</tool_code>
     # (d) <tool_call>name(args)</tool_call>
@@ -76,19 +75,19 @@ def process_message_content(content_str: str):
 
     # Pattern 1: standard/custom hermes/gemma tool call
     p1 = re.finditer(
-        r"<\|tool_call>call:([\w\.:]+)([\(\{].*?[\)\}])<tool_call\|>", content_str, re.DOTALL
+        r"<\|tool_call\|>call:([\w\.:]+)([\(\{].*?[\)\}])<\|tool_call\|>", content_str, re.DOTALL
     )
     for m in p1:
         tool_matches.append((m.group(0), m.group(1), m.group(2)))
 
     # Pattern 2: ChatML tool call
-    p2 = re.finditer(r"<\|im_start|>call:([\w\.:]+)([\(\{].*?[\)\}])", content_str, re.DOTALL)
+    p2 = re.finditer(r"<\|im_start\|>call:([\w\.:]+)([\(\{].*?[\)\}])", content_str, re.DOTALL)
     for m in p2:
         # We also want to capture a trailing <|im_end|> or <|im_end|>\n if present in the full match
         full_match = m.group(0)
         # Check if <|im_end|> immediately follows (with optional whitespace)
         rest = content_str[m.end() :]
-        end_match = re.match(r"\s*<\|im_end\|>?", rest) or re.match(r"\s*<\|im_end>?", rest)
+        end_match = re.match(r"\s*<\|im_end\|>?", rest)
         if end_match:
             full_match += end_match.group(0)
         tool_matches.append((full_match, m.group(1), m.group(2)))
@@ -126,9 +125,9 @@ def process_message_content(content_str: str):
         content_str = content_str.replace(full_match, "").strip()
 
     # 3. Clean up known leaked assistant header and trailing im_end AFTER extracting tools and responses
-    content_str = re.sub(r"<\|im_start|>assistant\n?", "", content_str)
+    content_str = re.sub(r"<\|im_start\|>assistant\n?", "", content_str)
     content_str = re.sub(r"<\|im_end\|>?", "", content_str)
-    content_str = re.sub(r"<\|im_end>?", "", content_str)
+    content_str = re.sub(r"<\|thought\n?", "", content_str)
 
     # 4. Clean up any thinking tags or channels if they leaked
     content_str = re.sub(
@@ -139,8 +138,43 @@ def process_message_content(content_str: str):
     )
     content_str = re.sub(r"<think>.*?</think>", "", content_str, flags=re.DOTALL)
 
+    return synthesized_tool_calls, content_str.strip().strip()
 
-# Test with actual hallucinated/ChatML response from session file
-session_content = '<|thought\n<|im_start|>call:write_file(path=\'/home/gnulnx/LlamaStudio/hello.txt\', content=\'Hello from local Hermes CLI!\')\n<|im_end|>\n<|im_start|>response:write_file(path=\'/home/gnulnx/LlamaStudio/hello.txt\', content=\'Hello from local Hermes CLI!\')\n{\n  "status": "success",\n  "message": "File written successfully",\n  "path": "/home/gnulnx/LlamaStudio/hello.txt"\n}\n<|im_end|>\n<|im_start|>assistant\nFile written: /home/gnulnx/LlamaStudio/hello.txt\n<|im_end|>'
 
-process_message_content(session_content)
+class TestRegexToolParsing(unittest.TestCase):
+    def test_regex_parsing_of_hermes_tool_calls(self):
+        # Generic mock response content
+        session_content = (
+            "<|thought\n"
+            "<|im_start|>call:write_file(path='/path/to/LlamaStudio/hello.txt', content='Hello from local Hermes CLI!')\n"
+            "<|im_end|>\n"
+            "<|im_start|>response:write_file(path='/path/to/LlamaStudio/hello.txt', content='Hello from local Hermes CLI!')\n"
+            "{\n"
+            '  "status": "success",\n'
+            '  "message": "File written successfully",\n'
+            '  "path": "/path/to/LlamaStudio/hello.txt"\n'
+            "}\n"
+            "<|im_end|>\n"
+            "<|im_start|>assistant\n"
+            "File written: /path/to/LlamaStudio/hello.txt\n"
+            "<|im_end|>"
+        )
+
+        synthesized_calls, cleaned_content = process_message_content(session_content)
+
+        # We assert that tool calls are correctly extracted
+        self.assertEqual(len(synthesized_calls), 1)
+        self.assertEqual(synthesized_calls[0]["name"], "write_file")
+        self.assertEqual(
+            synthesized_calls[0]["arguments"]["path"], "/path/to/LlamaStudio/hello.txt"
+        )
+        self.assertEqual(
+            synthesized_calls[0]["arguments"]["content"], "Hello from local Hermes CLI!"
+        )
+
+        # We assert that the leaked assistant tags and thoughts are removed from the clean display text
+        self.assertEqual(cleaned_content, "File written: /path/to/LlamaStudio/hello.txt")
+
+
+if __name__ == "__main__":
+    unittest.main()

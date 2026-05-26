@@ -13,22 +13,26 @@ from app.tools import check_path_safe, list_dir
 class TestWorkspaceSandboxing(unittest.TestCase):
     def test_default_sandboxing_enabled(self):
         """Test default sandboxing restricts to the default repository root."""
-        # Relative path inside workspace should be safe
-        safe_path = check_path_safe("hello.txt")
-        self.assertTrue(safe_path.name == "hello.txt")
+        with patch("app.tools.settings.DISABLE_SANDBOX", False):
+            # Relative path inside workspace should be safe
+            safe_path = check_path_safe("hello.txt")
+            self.assertTrue(safe_path.name == "hello.txt")
 
-        # Path outside workspace should raise ValueError
-        with self.assertRaises(ValueError):
-            check_path_safe("/etc/passwd")
+            # Path outside workspace should raise ValueError
+            with self.assertRaises(ValueError):
+                check_path_safe("/etc/passwd")
 
-        with self.assertRaises(ValueError):
-            check_path_safe("../outside.txt")
+            with self.assertRaises(ValueError):
+                check_path_safe("../outside.txt")
 
     def test_custom_workspace_root(self):
         """Test sandboxing respects custom WORKSPACE_ROOT setting."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir).resolve()
-            with patch("app.tools.settings.WORKSPACE_ROOT", str(tmp_path)):
+            with (
+                patch("app.tools.settings.WORKSPACE_ROOT", str(tmp_path)),
+                patch("app.tools.settings.DISABLE_SANDBOX", False),
+            ):
                 # Inside new workspace root should pass
                 safe_path = check_path_safe("inside.txt")
                 self.assertEqual(safe_path, tmp_path / "inside.txt")
