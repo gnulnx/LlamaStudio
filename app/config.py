@@ -123,6 +123,10 @@ class Settings(BaseSettings):
     APP_PORT: int = 8765
     APP_HOST: str = "127.0.0.1"
 
+    # Sandbox/Workspace root for tools
+    WORKSPACE_ROOT: str = str(Path(__file__).parent.parent.resolve())
+    DISABLE_SANDBOX: bool = False
+
     # Log file for llama-server output
     LOG_DIR: str = str(Path(__file__).parent.parent / "logs")
 
@@ -130,7 +134,11 @@ class Settings(BaseSettings):
     CONVERSATIONS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "conversations.json")
     MODEL_SETTINGS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_settings.json")
 
-    model_config = {"env_prefix": "LLAMASTUDIO_"}
+    model_config = {
+        "env_prefix": "LLAMASTUDIO_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+    }
 
     @classmethod
     def migrate_persistence_files(cls):

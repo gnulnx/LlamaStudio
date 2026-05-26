@@ -143,4 +143,4 @@ User clicks "Eject Model":
 - FastAPI 0.136.1
 - Starlette 1.0.1
 - HTMX (via CDN)
-- llama.cpp built from source (in /home/gnulnx/llama.cpp)
+- llama.cpp built from source (in `~/llama.cpp`)

@@ -99,7 +99,9 @@ class ModelDownloader:
     async def _download_loop(self, repo_id: str, filename: str):
         # Build local target directory: settings.MODEL_DIRS[0] / author / repo_name / filename
         base_dir = Path(
-            settings.MODEL_DIRS[0] if settings.MODEL_DIRS else "/home/gnulnx/.lmstudio/models"
+            settings.MODEL_DIRS[0]
+            if settings.MODEL_DIRS
+            else str(Path.home() / ".lmstudio" / "models")
         )
 
         parts = repo_id.split("/")

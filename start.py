@@ -52,7 +52,8 @@ def pid_cmdline(pid: int) -> str:
 
 def is_llamastudio_pid(pid: int) -> bool:
     cmdline = pid_cmdline(pid)
-    return str(Path(__file__).resolve()) in cmdline
+    resolved_path = Path(__file__).resolve()
+    return str(resolved_path) in cmdline or (resolved_path.name in cmdline and "python" in cmdline)
 
 
 def port_in_use() -> bool:

@@ -8,22 +8,25 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from .config import settings
 from .logger import logger
-
-WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
 
 
 def check_path_safe(file_path: str) -> Path:
-    """Resolve file path and guarantee it remains strictly within the workspace root."""
+    """Resolve file path and guarantee it remains strictly within the workspace root unless sandboxing is disabled."""
     target = Path(file_path)
+    if settings.DISABLE_SANDBOX:
+        return target.resolve()
+
+    workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
     # If relative, resolve against workspace root
     if not target.is_absolute():
-        target = WORKSPACE_ROOT / target
+        target = workspace_root / target
 
     target = target.resolve()
 
-    # Check if target is indeed inside WORKSPACE_ROOT
-    if not str(target).startswith(str(WORKSPACE_ROOT)):
+    # Check if target is indeed inside workspace_root
+    if not str(target).startswith(str(workspace_root)):
         raise ValueError(
             f"Permission Denied: Target path '{file_path}' lies outside the workspace directory."
         )
@@ -69,9 +72,13 @@ def list_dir(dir_path: str = ".") -> str:
         if not safe_path.is_dir():
             return f"Error: '{dir_path}' is a file, not a directory."
 
+        workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
         entries = []
         for p in safe_path.iterdir():
-            rel = p.relative_to(WORKSPACE_ROOT)
+            try:
+                rel = p.relative_to(workspace_root)
+            except ValueError:
+                rel = p.name
             suffix = "/" if p.is_dir() else ""
             size = f" ({p.stat().st_size} bytes)" if p.is_file() else ""
             entries.append(f"{rel}{suffix}{size}")
@@ -98,10 +105,11 @@ def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
     try:
         logger.info(f"[tools] Executing command: {command}")
+        workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
         res = subprocess.run(
             command,
             shell=True,
-            cwd=str(WORKSPACE_ROOT),
+            cwd=str(workspace_root),
             capture_output=True,
             text=True,
             timeout=15.0,
