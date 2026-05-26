@@ -1,15 +1,15 @@
 # 🦙 LLamaStudio
 
-A premium, desktop-grade chat interface and local server manager for `llama.cpp`, crafted with **FastAPI** + **HTMX** for ultra-lightweight, zero-framework execution. 
+A desktop chat interface and local server manager for `llama.cpp`, crafted with **FastAPI** + **HTMX** for ultra-lightweight, zero-framework execution. 
 
-Designed to replicate the professional look and feel of commercial alternatives, **LLamaStudio** is a self-contained local workspace that manages model lifecycles, features a smart VRAM estimator, scans local folders, and lets you search and download models directly from the Hugging Face Hub.
+**LLamaStudio** is a self-contained local workspace that manages model lifecycles, features a smart VRAM estimator, scans local folders, and lets you search and download models directly from the Hugging Face Hub.
 
 ---
 
 ## 📸 Screenshots & Showcase
 
 ### 1. Main Chat Dashboard
-A gorgeous, Pop!_OS-harmonized dark interface with streaming, collapsible markdown reasoning (thinking) processes, and real-time agentic tool execution logs.
+A Pop!_OS-harmonized dark interface with streaming, collapsible markdown reasoning (thinking) processes, and real-time agentic tool execution logs.
 ![Main Chat Dashboard](imgs/chat_interface.png)
 
 ### 2. GGUF Model Browser & Settings
@@ -29,7 +29,7 @@ Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Est
 - **🚀 Smart VRAM Estimator**: calulated specifically for your hardware (fits fully on **RTX 5090 32GB VRAM**, partial offload warning, or heavy CPU fallback warning).
 - **📂 Automatic Model Scanning**: Scans standard directories (like `~/.lmstudio/models`) automatically on startup or via a one-click rescan button.
 - **🪐 Process Lifecycle Manager**: The underlying `llama-server` process only spins up when you explicitly load a model, releasing all system resources and GPU VRAM instantly when you click "Eject".
-- **🔧 Sandboxed Agentic Tool Use**: Leverages standard local tools (file read/write, path resolving, etc.) with real-time, glassmorphic UI execution logs.
+- **🔧 Configurable Workspace Sandboxing**: Supports sandboxed agentic tool use (file read/write, commands, etc.) with real-time logs in the UI. Sandboxing boundaries can be easily broadened or bypassed entirely via a `.env` file or environment variables to grant the model system access.
 - **🖥️ XDG-Compliant Persistence**: Conversations and model settings profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations!
 - **📦 Full Linux & macOS Portability**: Server binaries and model directories are resolved dynamically on startup.
 
@@ -82,7 +82,7 @@ To integrate LLamaStudio directly into your Linux Application launcher menu (e.g
 # 1. Copy the desktop file to your local applications directory
 cp llamastudio.desktop ~/.local/share/applications/
 
-# 2. Copy the custom premium SVG icon to your local icons directory
+# 2. Copy the custom SVG icon to your local icons directory
 mkdir -p ~/.local/share/icons/hicolor/128x128/apps/
 cp llamastudio.svg ~/.local/share/icons/hicolor/128x128/apps/
 
@@ -147,7 +147,7 @@ Pull requests extending native Windows support (e.g., resolving `.exe` binaries)
 ## 🚀 Running the Application
 
 ### Option A: Via Unified CLI (`lls` - Recommended)
-You can link and install LlamaStudio's premium CLI utility locally to control the desktop app and server seamlessly:
+You can link and install LlamaStudio's CLI utility locally to control the desktop app and server seamlessly:
 ```bash
 # Start the desktop application server and open browser UI
 lls reload
@@ -173,7 +173,7 @@ Search for **LLamaStudio** in your desktop search bar (press Super, type "Llama"
 
 ## 🛠️ Unified Command-Line Interface (`lls`)
 
-LlamaStudio features a high-end CLI built using `rich-click` for visual dashboards and operational efficiency. 
+LlamaStudio features a CLI built using `rich-click` for visual dashboards and operational efficiency. 
 
 ### CLI Subcommands Reference
 
@@ -202,10 +202,29 @@ Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
 
 ## ⚙️ Configuration & Customization
 
-The application runs fully out-of-the-box with no manual configuration. However, you can customize default settings inside `app/config.py`:
+The application runs fully out-of-the-box with no manual configuration. However, you can customize default settings inside `app/config.py` or by using a local `.env` file:
 - `LLAMA_SERVER_BIN`: The absolute path to your `llama-server` binary (automatically resolved on PATH/home).
 - `MODEL_DIRS`: List of local directories to scan for GGUF model files (defaults to `~/.lmstudio/models`).
 - `APP_PORT`: FastAPI web server port (defaults to `8765`).
+
+---
+
+## 🛡️ Workspace Sandboxing & Embodiment
+
+By default, LlamaStudio restricts agent tools (like reading, writing, and listing files) to the repository directory to prevent accidental path traversals. 
+
+If you want to grant your model more control (e.g., to act as a system embodiment or write to external directories), you can customize these boundaries by placing a `.env` file in the root directory:
+
+* **Broaden the Sandbox Root** (e.g., allow the agent access to your entire home directory):
+  ```ini
+  LLAMASTUDIO_WORKSPACE_ROOT=/home/username
+  ```
+* **Completely Disable Sandboxing** (gives the agent full filesystem control based on the running process's permissions):
+  ```ini
+  LLAMASTUDIO_DISABLE_SANDBOX=true
+  ```
+
+Restart or reload the backend (`lls reload`) after modifying the `.env` file to apply changes.
 
 ---
 
@@ -214,9 +233,9 @@ The application runs fully out-of-the-box with no manual configuration. However,
 LlamaStudio features both standard unit tests and comprehensive GGUF integration tests.
 
 ### 1. Standard Unit Tests
-Verify local installation and confirm backend routing stability by running our mock-based test suite:
+Verify local installation and confirm backend routing, regex parsing, and sandboxing safety behaviors by running our mock-based test suite:
 ```bash
-python -m unittest tests/test_downloader.py
+python -m unittest discover tests
 ```
 
 ### 2. GGUF Model Integration Tests
