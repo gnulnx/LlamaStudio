@@ -2258,6 +2258,7 @@
     let loadedModelPath = '{{ current_model or "" }}';
     let loadedModelName = '{{ current_model_name or "" }}';
     let isServerRunning = {% if server_running %}true{% else %}false{% endif %};
+    let initialLaunchView = '{{ launch_view }}';
     let activeSettingsTab = 'info';
     window.backendGpuInfo = null;
 
@@ -2294,6 +2295,15 @@
         renderConversationsList();
         await fetchDiscoveredModels();
         await fetchSavedModelSettings();
+
+        const requestedView = new URLSearchParams(window.location.search).get('view');
+        const validLaunchViews = ['chat', 'discover', 'models', 'logs'];
+        const launchView = validLaunchViews.includes(requestedView)
+            ? requestedView
+            : initialLaunchView;
+        if (validLaunchViews.includes(launchView)) {
+            switchView(launchView);
+        }
         
         // Initial setup for empty states
         refreshChatEmptyState();

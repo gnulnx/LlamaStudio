@@ -8,17 +8,17 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .config import settings
+from .config_store import config_loader
 from .logger import logger
 
 
 def check_path_safe(file_path: str) -> Path:
     """Resolve file path and guarantee it remains strictly within the workspace root unless sandboxing is disabled."""
     target = Path(file_path)
-    if settings.DISABLE_SANDBOX:
+    if config_loader.sandbox_disabled():
         return target.resolve()
 
-    workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
+    workspace_root = Path(config_loader.get_workspace_root()).resolve()
     # If relative, resolve against workspace root
     if not target.is_absolute():
         target = workspace_root / target
@@ -72,7 +72,7 @@ def list_dir(dir_path: str = ".") -> str:
         if not safe_path.is_dir():
             return f"Error: '{dir_path}' is a file, not a directory."
 
-        workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
+        workspace_root = Path(config_loader.get_workspace_root()).resolve()
         entries = []
         for p in safe_path.iterdir():
             try:
@@ -105,7 +105,7 @@ def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
     try:
         logger.info(f"[tools] Executing command: {command}")
-        workspace_root = Path(settings.WORKSPACE_ROOT).resolve()
+        workspace_root = Path(config_loader.get_workspace_root()).resolve()
         res = subprocess.run(
             command,
             shell=True,
