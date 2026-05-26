@@ -35,6 +35,11 @@ except ImportError:
 API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
 
 
+def server_launch_command() -> list[str]:
+    """Return the importable server launcher command for source and wheel installs."""
+    return [sys.executable, "-m", "app.launcher"]
+
+
 def is_server_online() -> bool:
     """Check if the FastAPI app server is bound and listening on its designated port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -60,16 +65,9 @@ def wait_for_server_ready(timeout: int = 15) -> bool:
 
 def start_server_background() -> bool:
     """Launch the main desktop FastAPI server as a daemonized background process."""
-    project_root = Path(__file__).parent.parent.resolve()
-    start_script = project_root / "start.py"
-    if not start_script.exists():
-        console.print(f"[bold red]Error: Startup script not found at {start_script}[/bold red]")
-        return False
-
     console.print("[yellow]Starting LlamaStudio desktop server in the background...[/yellow]")
-    # Run start.py as a detached daemon process
     subprocess.Popen(
-        [sys.executable, str(start_script)],
+        server_launch_command(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -326,11 +324,8 @@ def load(model, reload, **kwargs):
     # 2. Handle reload or server offline
     if reload and is_server_online():
         console.print("[yellow]Reload option specified. Restarting LlamaStudio server...[/yellow]")
-        # Execute reload command programmatically
-        project_root = Path(__file__).parent.parent.resolve()
-        start_script = project_root / "start.py"
         subprocess.Popen(
-            [sys.executable, str(start_script)],
+            server_launch_command(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,

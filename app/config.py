@@ -127,10 +127,9 @@ class Settings(BaseSettings):
     WORKSPACE_ROOT: str = str(Path(__file__).parent.parent.resolve())
     DISABLE_SANDBOX: bool = False
 
-    # Log file for llama-server output
-    LOG_DIR: str = str(Path(__file__).parent.parent / "logs")
-
-    # Persistence files stored outside the repository in the user's config home
+    # Runtime files stored outside the repository/package in the user's config home
+    CONFIG_DIR: str = str(Path.home() / ".config" / "llamastudio")
+    LOG_DIR: str = str(Path.home() / ".config" / "llamastudio" / "logs")
     CONVERSATIONS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "conversations.json")
     MODEL_SETTINGS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_settings.json")
 

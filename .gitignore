@@ -10,6 +10,11 @@ venv/
 env/
 .env/
 
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
 # Application logs & database
 logs/
 app/conversations.json
@@ -20,4 +25,3 @@ HelloFromMe.txt
 
 # Node dependencies
 node_modules/
-
