@@ -106,7 +106,8 @@ def status():
             Panel(
                 "[bold red]LlamaStudio Desktop Application / API Server is OFFLINE[/bold red]\n\n"
                 f"Server is configured to run on [cyan]http://{API_HOST}:{API_PORT}[/cyan]\n"
-                "Run [green]lls load <model>[/green] or [green]python3 start.py[/green] to launch it.",
+                "Run [green]lls reload[/green], [green]lls load <model>[/green], "
+                "or [green]llamastudio[/green] to launch it.",
                 title="Status Dashboard",
                 border_style="red",
             )

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llamastudio"
-version = "1.0.1"
+version = "1.0.2"
 description = "FastAPI backend & desktop launcher for running local models via llama.cpp"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -55,4 +55,4 @@ dev = [
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["templates/*.html"]
+app = ["templates/*.html", "static/*.png", "static/*.svg"]
