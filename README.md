@@ -48,7 +48,12 @@ LLamaStudio is compatible with **Linux** and **macOS** out-of-the-box. Choose yo
 
 #### Environment Setup
 
-##### Option A: Conda / Miniconda (Recommended)
+##### Option A: Install from PyPI
+```bash
+pip install llamastudio
+```
+
+##### Option B: Conda / Miniconda from source
 ```bash
 # 1. Clone the repository
 git clone https://github.com/gnulnx/LlamaStudio.git
@@ -62,7 +67,7 @@ conda activate llamastudio
 pip install -e .
 ```
 
-##### Option B: Python Virtualenv (`venv`)
+##### Option C: Python Virtualenv (`venv`) from source
 ```bash
 # 1. Clone the repository
 git clone https://github.com/gnulnx/LlamaStudio.git
@@ -106,7 +111,12 @@ gtk-update-icon-cache -f -t ~/.local/share/icons
 
 #### Environment Setup
 
-##### Option A: Conda / Miniconda (Recommended)
+##### Option A: Install from PyPI
+```bash
+pip install llamastudio
+```
+
+##### Option B: Conda / Miniconda from source
 ```bash
 # 1. Clone the repository
 git clone https://github.com/gnulnx/LlamaStudio.git
@@ -120,7 +130,7 @@ conda activate llamastudio
 pip install -e .
 ```
 
-##### Option B: Python Virtualenv (`venv`)
+##### Option C: Python Virtualenv (`venv`) from source
 ```bash
 # 1. Clone the repository
 git clone https://github.com/gnulnx/LlamaStudio.git
@@ -153,8 +163,14 @@ You can link and install LlamaStudio's CLI utility locally to control the deskto
 lls reload
 ```
 
-### Option B: Via Direct Startup Script
-Activate your virtual environment and run the startup script:
+### Option B: Via App Launcher Command
+After installing from PyPI or source, run:
+```bash
+llamastudio
+```
+
+### Option C: Via Direct Startup Script
+When working from a source checkout, activate your virtual environment and run the startup script:
 ```bash
 # Activate your env (Conda)
 conda activate llamastudio

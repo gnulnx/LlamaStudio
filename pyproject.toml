@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llamastudio"
-version = "1.0.0"
+version = "1.0.1"
 description = "FastAPI backend & desktop launcher for running local models via llama.cpp"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
     "httpx",
@@ -17,9 +17,33 @@ dependencies = [
     "rich-click",
     "uvicorn",
 ]
+authors = [
+    { name = "LLamaStudio contributors" },
+]
+keywords = ["llama.cpp", "llm", "local-ai", "fastapi", "gguf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/gnulnx/LlamaStudio"
+Repository = "https://github.com/gnulnx/LlamaStudio"
+Issues = "https://github.com/gnulnx/LlamaStudio/issues"
 
 [project.scripts]
 lls = "app.cli:cli"
+llamastudio = "app.launcher:main"
 
 [project.optional-dependencies]
 dev = [
