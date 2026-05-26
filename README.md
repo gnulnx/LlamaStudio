@@ -268,7 +268,7 @@ For local environments containing active GPUs and downloaded models, you can run
 
 ```
 LlamaStudio/
-├── start.py               # Main entrypoint (starts FastAPI + opens browser)
+├── start.py               # Source checkout wrapper for app.launcher
 ├── pyproject.toml         # Package metadata, CLI entrypoint, and dependencies
 ├── llamastudio.desktop    # GNOME/Linux desktop launcher metadata
 ├── llamastudio.svg        # Custom application vector icon

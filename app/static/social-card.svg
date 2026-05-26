@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d0d15"/>
+      <stop offset="55%" stop-color="#181824"/>
+      <stop offset="100%" stop-color="#1f1f30"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="50%" stop-color="#7f5af0"/>
+      <stop offset="100%" stop-color="#f857a6"/>
+    </linearGradient>
+    <linearGradient id="iconBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.7"/>
+      <stop offset="50%" stop-color="#7f00ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#ff007f" stop-opacity="0.7"/>
+    </linearGradient>
+    <linearGradient id="leftGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#4facfe"/>
+    </linearGradient>
+    <linearGradient id="leftGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00c6ff"/>
+      <stop offset="100%" stop-color="#0072ff"/>
+    </linearGradient>
+    <linearGradient id="rightGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f857a6"/>
+      <stop offset="100%" stop-color="#ff5858"/>
+    </linearGradient>
+    <linearGradient id="rightGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a18cd1"/>
+      <stop offset="100%" stop-color="#fbc2eb"/>
+    </linearGradient>
+    <linearGradient id="centerGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7f00ff"/>
+      <stop offset="100%" stop-color="#e100ff"/>
+    </linearGradient>
+    <linearGradient id="centerGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3f5efb"/>
+      <stop offset="100%" stop-color="#fc466b"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="26" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="230" cy="315" r="250" fill="#7f5af0" opacity="0.12" filter="url(#softGlow)"/>
+  <circle cx="1005" cy="100" r="210" fill="#00f2fe" opacity="0.09" filter="url(#softGlow)"/>
+  <circle cx="1030" cy="545" r="260" fill="#f857a6" opacity="0.10" filter="url(#softGlow)"/>
+
+  <rect x="56" y="56" width="1088" height="518" rx="44" fill="none" stroke="url(#accent)" stroke-width="3" opacity="0.55"/>
+  <g transform="translate(92 95) scale(0.859375)">
+    <rect width="500" height="500" x="6" y="6" rx="120" fill="#121526" stroke="url(#iconBorder)" stroke-width="5"/>
+    <circle cx="256" cy="256" r="220" fill="none" stroke="#252b48" stroke-dasharray="12 12" stroke-width="2" opacity="0.6"/>
+    <circle cx="256" cy="256" r="160" fill="none" stroke="#252b48" stroke-dasharray="8 8" stroke-width="1.5" opacity="0.4"/>
+    <circle cx="256" cy="260" r="90" fill="#7f00ff" opacity="0.16" filter="url(#softGlow)"/>
+    <g>
+      <polygon points="210,100 230,200 190,200" fill="url(#leftGrad1)"/>
+      <polygon points="302,100 282,200 322,200" fill="url(#rightGrad1)"/>
+      <polygon points="190,200 230,200 256,220" fill="url(#leftGrad2)" opacity="0.9"/>
+      <polygon points="322,200 282,200 256,220" fill="url(#rightGrad2)" opacity="0.9"/>
+      <polygon points="190,200 200,320 210,360" fill="url(#leftGrad2)" opacity="0.85"/>
+      <polygon points="322,200 312,320 302,360" fill="url(#rightGrad2)" opacity="0.85"/>
+      <polygon points="230,200 256,220 200,320" fill="url(#leftGrad1)"/>
+      <polygon points="282,200 256,220 312,320" fill="url(#rightGrad1)"/>
+      <polygon points="256,220 200,320 256,380" fill="url(#centerGrad1)"/>
+      <polygon points="256,220 312,320 256,380" fill="url(#centerGrad2)"/>
+      <polygon points="200,320 256,380 210,360" fill="url(#leftGrad2)" opacity="0.95"/>
+      <polygon points="312,320 256,380 302,360" fill="url(#rightGrad2)" opacity="0.95"/>
+      <polygon points="210,360 210,440 256,380" fill="url(#leftGrad1)" opacity="0.8"/>
+      <polygon points="302,360 302,440 256,380" fill="url(#rightGrad1)" opacity="0.8"/>
+      <polygon points="256,380 210,440 256,460" fill="url(#centerGrad1)" opacity="0.9"/>
+      <polygon points="256,380 302,440 256,460" fill="url(#centerGrad2)" opacity="0.9"/>
+    </g>
+    <circle cx="232" cy="275" r="4" fill="#ffffff" opacity="0.9"/>
+    <circle cx="280" cy="275" r="4" fill="#ffffff" opacity="0.9"/>
+    <ellipse cx="256" cy="110" rx="140" ry="40" fill="#ffffff" opacity="0.04" transform="rotate(-15 256 110)"/>
+  </g>
+
+  <text x="590" y="230" fill="#f1f2f6" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="86" font-weight="800">LLamaStudio</text>
+  <text x="596" y="302" fill="#a4a9bd" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="500">Local llama.cpp model studio</text>
+  <text x="596" y="372" fill="#f1f2f6" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="600">FastAPI + HTMX desktop UI</text>
+  <rect x="596" y="420" width="404" height="4" rx="2" fill="url(#accent)"/>
+  <text x="596" y="478" fill="#a4a9bd" font-family="JetBrains Mono, SFMono-Regular, Menlo, monospace" font-size="26">pip install llamastudio</text>
+</svg>

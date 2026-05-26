@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1123" />
+      <stop offset="100%" stop-color="#1b1e36" />
+    </linearGradient>
+
+    <!-- Border Gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#7f00ff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#ff007f" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <!-- Left side gradients (Cyan/Teal/Blue) -->
+    <linearGradient id="leftGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#4facfe"/>
+    </linearGradient>
+    <linearGradient id="leftGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00c6ff"/>
+      <stop offset="100%" stop-color="#0072ff"/>
+    </linearGradient>
+
+    <!-- Right side gradients (Pink/Purple/Magenta) -->
+    <linearGradient id="rightGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f857a6"/>
+      <stop offset="100%" stop-color="#ff5858"/>
+    </linearGradient>
+    <linearGradient id="rightGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a18cd1"/>
+      <stop offset="100%" stop-color="#fbc2eb"/>
+    </linearGradient>
+
+    <!-- Center gradients (Vibrant Violet/Indigo) -->
+    <linearGradient id="centerGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7f00ff"/>
+      <stop offset="100%" stop-color="#e100ff"/>
+    </linearGradient>
+    <linearGradient id="centerGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3f5efb"/>
+      <stop offset="100%" stop-color="#fc466b"/>
+    </linearGradient>
+
+    <!-- Glowing Effects -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Outer Squircle with glowing border -->
+  <rect width="500" height="500" x="6" y="6" rx="120" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="5" />
+
+  <!-- Background decorative elements for "Studio" high-tech feel -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#252b48" stroke-dasharray="12 12" stroke-width="2" opacity="0.6"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#252b48" stroke-dasharray="8 8" stroke-width="1.5" opacity="0.4"/>
+  <line x1="256" y1="36" x2="256" y2="476" stroke="#252b48" stroke-width="1" stroke-dasharray="6 6" opacity="0.2"/>
+  <line x1="36" y1="256" x2="476" y2="256" stroke="#252b48" stroke-width="1" stroke-dasharray="6 6" opacity="0.2"/>
+
+  <!-- Glowing background aura behind Llama -->
+  <circle cx="256" cy="260" r="90" fill="#7f00ff" opacity="0.15" filter="url(#glow)"/>
+
+  <!-- Low-Poly Llama Graphic -->
+  <g id="llama-head" filter="url(#glow)">
+    <!-- Left Ear (Facets) -->
+    <polygon points="210,100 230,200 190,200" fill="url(#leftGrad1)" />
+    <!-- Right Ear (Facets) -->
+    <polygon points="302,100 282,200 322,200" fill="url(#rightGrad1)" />
+    
+    <!-- Forehead Left -->
+    <polygon points="190,200 230,200 256,220" fill="url(#leftGrad2)" opacity="0.9" />
+    <!-- Forehead Right -->
+    <polygon points="322,200 282,200 256,220" fill="url(#rightGrad2)" opacity="0.9" />
+
+    <!-- Cheek Left -->
+    <polygon points="190,200 200,320 210,360" fill="url(#leftGrad2)" opacity="0.85" />
+    <!-- Cheek Right -->
+    <polygon points="322,200 312,320 302,360" fill="url(#rightGrad2)" opacity="0.85" />
+
+    <!-- Bridge Left -->
+    <polygon points="230,200 256,220 200,320" fill="url(#leftGrad1)" />
+    <!-- Bridge Right -->
+    <polygon points="282,200 256,220 312,320" fill="url(#rightGrad1)" />
+
+    <!-- Nose Bridge Left -->
+    <polygon points="256,220 200,320 256,380" fill="url(#centerGrad1)" />
+    <!-- Nose Bridge Right -->
+    <polygon points="256,220 312,320 256,380" fill="url(#centerGrad2)" />
+
+    <!-- Jaw Center Left -->
+    <polygon points="200,320 256,380 210,360" fill="url(#leftGrad2)" opacity="0.95" />
+    <!-- Jaw Center Right -->
+    <polygon points="312,320 256,380 302,360" fill="url(#rightGrad2)" opacity="0.95" />
+
+    <!-- Neck Left -->
+    <polygon points="210,360 210,440 256,380" fill="url(#leftGrad1)" opacity="0.8" />
+    <!-- Neck Right -->
+    <polygon points="302,360 302,440 256,380" fill="url(#rightGrad1)" opacity="0.8" />
+    
+    <!-- Neck Center -->
+    <polygon points="256,380 210,440 256,460" fill="url(#centerGrad1)" opacity="0.9" />
+    <polygon points="256,380 302,440 256,460" fill="url(#centerGrad2)" opacity="0.9" />
+  </g>
+
+  <!-- Glowing eye highlights or sparkles for "Studio" energy -->
+  <circle cx="232" cy="275" r="4" fill="#ffffff" filter="url(#glow)" opacity="0.9"/>
+  <circle cx="280" cy="275" r="4" fill="#ffffff" filter="url(#glow)" opacity="0.9"/>
+  
+  <!-- Subtle overlay lens flare on top -->
+  <ellipse cx="256" cy="110" rx="140" ry="40" fill="#ffffff" opacity="0.04" transform="rotate(-15 256 110)" />
+</svg>

@@ -21,10 +21,11 @@ from .server_manager import server
 
 app = FastAPI(title="LLamaStudio")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+static_dir = Path(__file__).parent / "static"
 
 # Mount static files
-if Path("static").exists():
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 # Helper functions for model settings persistence
@@ -436,7 +437,10 @@ async def send_message(request: Request):
 @app.on_event("startup")
 async def startup():
     """Startup event. The app starts clean without a model loaded."""
-    logger.info("[LLamaStudio] Application started. Access interface on http://127.0.0.1:8765")
+    logger.info(
+        "[LLamaStudio] Application started. Access interface on "
+        f"http://{settings.APP_HOST}:{settings.APP_PORT}"
+    )
 
 
 @app.on_event("shutdown")
