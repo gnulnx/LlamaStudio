@@ -1,0 +1,82 @@
+name: Release Label Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+
+jobs:
+  version-bump:
+    if: contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch base branch
+        run: git fetch origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      - name: Verify pyproject.toml version increased
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          import subprocess
+          import sys
+          import tomllib
+
+
+          def current_version() -> str:
+              with open("pyproject.toml", "rb") as f:
+                  return tomllib.load(f)["project"]["version"]
+
+
+          def base_version() -> str:
+              base_ref = os.environ["BASE_REF"]
+              data = subprocess.check_output(
+                  ["git", "show", f"origin/{base_ref}:pyproject.toml"],
+                  text=True,
+              )
+              return tomllib.loads(data)["project"]["version"]
+
+
+          def version_tuple(version: str) -> tuple[int, ...]:
+              if not re.fullmatch(r"\d+(?:\.\d+)*", version):
+                  raise ValueError(
+                      f"Release label check only supports numeric versions, got {version!r}"
+                  )
+              return tuple(int(part) for part in version.split("."))
+
+
+          base = base_version()
+          current = current_version()
+
+          if version_tuple(current) <= version_tuple(base):
+              print(
+                  "A PR labelled 'release' must increment [project].version in pyproject.toml.",
+                  file=sys.stderr,
+              )
+              print(f"Base version: {base}", file=sys.stderr)
+              print(f"PR version:   {current}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Release version bump verified: {base} -> {current}")
+          PY
