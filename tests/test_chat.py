@@ -130,7 +130,9 @@ class TestChatStreaming(unittest.TestCase):
 
             with (
                 patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
-                patch("app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()
+                ),
                 patch("app.chat.httpx.Client", FakeHttpClient),
             ):
                 events = list(chat.stream_chat("hello"))
@@ -171,7 +173,9 @@ class TestChatStreaming(unittest.TestCase):
 
             with (
                 patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
-                patch("app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()
+                ),
                 patch("app.chat.httpx.Client", FakeReadTimeoutHttpClient),
             ):
                 events = list(chat.stream_chat("summarize a large file"))

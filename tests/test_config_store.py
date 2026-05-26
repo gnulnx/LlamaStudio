@@ -31,15 +31,13 @@ class TestConfigLoader(unittest.TestCase):
             model_file.write_text("fake model")
             legacy_file = Path(tmp) / "model_settings.json"
             legacy_file.write_text(
-                json.dumps(
-                    {
-                        str(model_file): {
-                            "ctx_size": 128000,
-                            "gpu_layers": 128,
-                            "inference_settings": {"temperature": 0.6},
-                        }
+                json.dumps({
+                    str(model_file): {
+                        "ctx_size": 128000,
+                        "gpu_layers": 128,
+                        "inference_settings": {"temperature": 0.6},
                     }
-                )
+                })
             )
             loader = ConfigLoader(
                 config_dir=Path(tmp) / "config",

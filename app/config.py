@@ -135,9 +135,7 @@ class Settings(BaseSettings):
     CONFIG_FILE: str = str(Path.home() / ".config" / "llamastudio" / "config.json")
     LOG_DIR: str = str(Path.home() / ".config" / "llamastudio" / "logs")
     CONVERSATIONS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "conversations.json")
-    MODEL_PROFILES_FILE: str = str(
-        Path.home() / ".config" / "llamastudio" / "model_profiles.json"
-    )
+    MODEL_PROFILES_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_profiles.json")
     MODEL_SETTINGS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_settings.json")
 
     model_config = {

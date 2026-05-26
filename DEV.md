@@ -36,3 +36,13 @@ The browser view is passed as `/?view=<name>` and the frontend applies it after 
 ## Tests
 
 Config behavior should be covered at the `ConfigLoader` boundary first. CLI and web tests should patch browser/server process actions rather than opening real browsers or starting real background servers.
+
+## Local Hooks
+
+Install the development hooks after `pip install -e ".[dev]"`:
+
+```bash
+pre-commit install
+```
+
+The hook runs Ruff lint fixes and formatting before commit, matching the GitHub Actions `ruff check .` and `ruff format --check .` gates.
