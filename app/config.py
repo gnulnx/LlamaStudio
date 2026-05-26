@@ -118,6 +118,7 @@ class Settings(BaseSettings):
     DEFAULT_TEMPERATURE: float = 0.7
     DEFAULT_TOP_P: float = 0.9
     DEFAULT_MAX_TOKENS: int = 2048
+    MAX_TOOL_ITERATIONS: int = 50
 
     # App settings
     APP_PORT: int = 8765

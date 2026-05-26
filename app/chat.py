@@ -202,7 +202,7 @@ class ChatManager:
             conv.messages.append(Message(role="user", content=user_message))
             self._save_to_disk()
 
-        max_iterations = 5
+        max_iterations = max(1, settings.MAX_TOOL_ITERATIONS)
         iteration = 0
         while iteration < max_iterations:
             iteration += 1
@@ -492,10 +492,19 @@ class ChatManager:
 
                     # Continue the while loop to get the next response from the model
                     if iteration >= max_iterations:
-                        logger.warning(
-                            "Reached maximum tool calling iterations. Breaking loop to prevent runaway."
+                        limit_message = (
+                            f"Stopped after {max_iterations} tool-calling rounds to prevent "
+                            "an infinite loop. You can raise this with "
+                            "LLAMASTUDIO_MAX_TOOL_ITERATIONS if this task needs more tool use."
                         )
-                        yield f"data: {json.dumps({'error': 'Maximum tool calling iterations reached'})}\n\n"
+                        logger.warning(
+                            "Reached maximum tool calling iterations (%s). Breaking loop to "
+                            "prevent runaway.",
+                            max_iterations,
+                        )
+                        conv.messages.append(Message(role="assistant", content=limit_message))
+                        self._save_to_disk()
+                        yield f"data: {json.dumps({'content': limit_message})}\n\n"
                         yield f"data: {json.dumps({'type': 'end'})}\n\n"
                         break
                     continue
