@@ -29,8 +29,8 @@ Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Est
 - **🚀 Smart VRAM Estimator**: calulated specifically for your hardware (fits fully on **RTX 5090 32GB VRAM**, partial offload warning, or heavy CPU fallback warning).
 - **📂 Automatic Model Scanning**: Scans standard directories (like `~/.lmstudio/models`) automatically on startup or via a one-click rescan button.
 - **🪐 Process Lifecycle Manager**: The underlying `llama-server` process only spins up when you explicitly load a model, releasing all system resources and GPU VRAM instantly when you click "Eject".
-- **🔧 Configurable Workspace Sandboxing**: Supports sandboxed agentic tool use (file read/write, commands, etc.) with real-time logs in the UI. Sandboxing boundaries can be easily broadened or bypassed entirely via a `.env` file or environment variables to grant the model system access.
-- **🖥️ XDG-Compliant Persistence**: Conversations and model settings profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations!
+- **🔧 Configurable Workspace Sandboxing**: Supports sandboxed agentic tool use (file read/write, commands, etc.) with real-time logs in the UI. Workspace and permission defaults are stored in the first-class app config.
+- **🖥️ XDG-Compliant Persistence**: App config, conversations, and first-class model profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations.
 - **📦 Full Linux & macOS Portability**: Server binaries and model directories are resolved dynamically on startup.
 
 ---
@@ -160,7 +160,7 @@ Pull requests extending native Windows support (e.g., resolving `.exe` binaries)
 You can link and install LlamaStudio's CLI utility locally to control the desktop app and server seamlessly:
 ```bash
 # Start the desktop application server and open browser UI
-lls reload
+lls start
 ```
 
 ### Option B: Via App Launcher Command
@@ -168,19 +168,6 @@ After installing from PyPI or source, run:
 ```bash
 llamastudio
 ```
-
-### Option C: Via Direct Startup Script
-When working from a source checkout, activate your virtual environment and run the startup script:
-```bash
-# Activate your env (Conda)
-conda activate llamastudio
-# OR (Venv)
-source .venv/bin/activate
-
-# Start the application
-python start.py
-```
-This will launch the FastAPI backend on `http://127.0.0.1:8765` and automatically open your default browser to the chat dashboard.
 
 ### Via Application Menu (Linux)
 Search for **LLamaStudio** in your desktop search bar (press Super, type "Llama") and click to launch!
@@ -195,7 +182,8 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `reload` | `lls reload` | Gracefully starts or restarts the desktop FastAPI application backend. |
+| `start` | `lls start` | Starts the desktop app and opens the browser to the right first-run/chat/models/discover view. |
+| `reload` | `lls reload` | Gracefully restarts the desktop FastAPI application backend. |
 | `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
@@ -218,29 +206,27 @@ Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
 
 ## ⚙️ Configuration & Customization
 
-The application runs fully out-of-the-box with no manual configuration. However, you can customize default settings inside `app/config.py` or by using a local `.env` file:
-- `LLAMA_SERVER_BIN`: The absolute path to your `llama-server` binary (automatically resolved on PATH/home).
-- `MODEL_DIRS`: List of local directories to scan for GGUF model files (defaults to `~/.lmstudio/models`).
-- `APP_PORT`: FastAPI web server port (defaults to `8765`).
+The application runs fully out-of-the-box with no manual configuration. On first launch, LlamaStudio creates its runtime config under:
+
+```text
+~/.config/llamastudio/
+  config.json
+  model_profiles.json
+  conversations.json
+  logs/
+```
+
+`config.json` stores app defaults, model search directories, workspace permissions, and launch state. `model_profiles.json` stores first-class per-model load and inference profiles. Older `model_settings.json` files are migrated automatically.
 
 ---
 
 ## 🛡️ Workspace Sandboxing & Embodiment
 
-By default, LlamaStudio restricts agent tools (like reading, writing, and listing files) to the repository directory to prevent accidental path traversals. 
+By default, LlamaStudio restricts agent tools (like reading, writing, and listing files) to the configured workspace directory to prevent accidental path traversals. For CLI launches, the first-run workspace defaults to the directory where `lls start` was run.
 
-If you want to grant your model more control (e.g., to act as a system embodiment or write to external directories), you can customize these boundaries by placing a `.env` file in the root directory:
+Workspace configuration is saved in `~/.config/llamastudio/config.json`. Environment variables are still supported for advanced/bootstrap overrides, but normal users should not need a `.env` file.
 
-* **Broaden the Sandbox Root** (e.g., allow the agent access to your entire home directory):
-  ```ini
-  LLAMASTUDIO_WORKSPACE_ROOT=/home/username
-  ```
-* **Completely Disable Sandboxing** (gives the agent full filesystem control based on the running process's permissions):
-  ```ini
-  LLAMASTUDIO_DISABLE_SANDBOX=true
-  ```
-
-Restart or reload the backend (`lls reload`) after modifying the `.env` file to apply changes.
+Developer details for the config/profile architecture live in [DEV.md](DEV.md).
 
 ---
 
@@ -268,12 +254,13 @@ For local environments containing active GPUs and downloaded models, you can run
 
 ```
 LlamaStudio/
-├── start.py               # Source checkout wrapper for app.launcher
 ├── pyproject.toml         # Package metadata, CLI entrypoint, and dependencies
+├── DEV.md                 # Development notes for runtime config and profiles
 ├── llamastudio.desktop    # GNOME/Linux desktop launcher metadata
 ├── llamastudio.svg        # Custom application vector icon
 ├── app/
 │   ├── config.py          # Settings & dynamic path configurations
+│   ├── config_store.py    # First-class runtime config and model profiles
 │   ├── main.py            # FastAPI backend endpoints & routing
 │   ├── chat.py            # Conversations registry, templates & chat streaming
 │   ├── downloader.py      # Async background download manager (chunked writes)
@@ -284,7 +271,7 @@ LlamaStudio/
 │   └── templates/
 │       └── index.html     # Interactive HTMX frontend interface
 ├── tests/
-│   └── test_downloader.py # Comprehensive mocked test cases (100% passing)
+│   └── *.py               # Unit and integration-adjacent test coverage
 └── imgs/
     ├── chat_interface.png # Screenshot: Main Chat interface
     ├── model_settings.png # Screenshot: Model explorer & settings

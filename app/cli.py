@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import time
+import webbrowser
 from pathlib import Path
 
 import httpx
@@ -25,6 +26,7 @@ console = Console()
 # Resolve FastAPI server settings dynamically
 try:
     from app.config import settings
+    from app.config_store import config_loader
 
     API_PORT = settings.APP_PORT
     API_HOST = settings.APP_HOST
@@ -38,6 +40,12 @@ API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
 def server_launch_command() -> list[str]:
     """Return the importable server launcher command for source and wheel installs."""
     return [sys.executable, "-m", "app.launcher"]
+
+
+def browser_url(view: str | None = None) -> str:
+    if view:
+        return f"{API_BASE_URL}/?view={view}"
+    return API_BASE_URL
 
 
 def is_server_online() -> bool:
@@ -88,6 +96,27 @@ def start_server_background() -> bool:
             return False
 
 
+def load_saved_model_settings(model_path: str) -> dict:
+    """Load the per-model settings profile saved by the desktop UI."""
+    return config_loader.get_model_profile_settings(model_path)
+
+
+def select_launch_view_for_cli(consume_first_launch: bool = True) -> str:
+    from app.model_manager import scan_models
+
+    model_loaded = False
+    if is_server_online():
+        with contextlib.suppress(Exception):
+            status_data = httpx.get(f"{API_BASE_URL}/api/server/status", timeout=2.0).json()
+            model_loaded = bool(status_data.get("running"))
+
+    return config_loader.get_launch_view(
+        model_loaded=model_loaded,
+        models_available=bool(scan_models()),
+        consume_first_launch=consume_first_launch,
+    )
+
+
 @click.group()
 def cli():
     """[cyan]LLamaStudio CLI (lls)[/cyan] - Manage your local LLMs and llama.cpp instances beautifully.
@@ -96,6 +125,30 @@ def cli():
     and manage your background desktop server.
     """
     pass
+
+
+@cli.command()
+def start():
+    """Start the desktop app and open the browser to the right launch view."""
+    config_loader.initialize_for_launch(Path.cwd())
+
+    if is_server_online():
+        view = select_launch_view_for_cli(consume_first_launch=True)
+        url = browser_url(view)
+        console.print(f"[green]LlamaStudio is already running.[/green] Opening [cyan]{url}[/cyan]")
+        webbrowser.open(url)
+        return
+
+    if start_server_background():
+        console.print(
+            Panel(
+                "[bold green]LLamaStudio started.[/bold green]\n\n"
+                f"Web UI and API server is live on [cyan]{API_BASE_URL}[/cyan]",
+                border_style="green",
+            )
+        )
+    else:
+        console.print("[bold red]Failed to start LlamaStudio server.[/bold red]")
 
 
 @cli.command()
@@ -238,8 +291,8 @@ def list_models_cmd():
 
 @cli.command()
 @click.argument("model", required=False)
-@click.option("--ctx-size", type=int, help="Override context size (default: 16384)")
-@click.option("--gpu-layers", type=int, help="Override offloaded GPU layers (default: 999)")
+@click.option("--ctx-size", type=int, help="Override context size")
+@click.option("--gpu-layers", type=int, help="Override offloaded GPU layers")
 @click.option("--threads", type=int, help="Number of CPU threads to use")
 @click.option(
     "--chat-template",
@@ -253,7 +306,13 @@ def list_models_cmd():
 @click.option("--kv-cache-type", help="Quantization type for Key-Value cache (e.g. q8_0, f16)")
 @click.option("--vocab-type", help="Quantization type for vocabulary (e.g. q8_0, f16)")
 @click.option("--override-kv", help="Format: key=type:val override string")
+@click.option("--task-timeout", type=int, help="Override llama-server task timeout in seconds")
 @click.option("--cpu-mode", is_flag=True, help="Force CPU inference (sets gpu-layers=0)")
+@click.option(
+    "--no-saved-settings",
+    is_flag=True,
+    help="Ignore saved desktop UI settings for this model",
+)
 @click.option(
     "--reload", is_flag=True, help="Restart/Reload the desktop application before loading"
 )
@@ -339,8 +398,14 @@ def load(model, reload, **kwargs):
         if not start_server_background():
             return
 
-    # 3. Compile custom settings parameters
-    settings_payload = {}
+    # 3. Compile custom settings parameters. Start with the UI profile so CLI loads
+    # do not discard tuned context/KV/cache settings, then apply explicit overrides.
+    settings_payload = (
+        {} if kwargs.get("no_saved_settings") else load_saved_model_settings(resolved_path)
+    )
+    if settings_payload:
+        console.print("[dim]Using saved load settings profile for this model.[/dim]")
+
     if kwargs.get("ctx_size") is not None:
         settings_payload["ctx_size"] = kwargs["ctx_size"]
     if kwargs.get("gpu_layers") is not None:
@@ -359,6 +424,8 @@ def load(model, reload, **kwargs):
         settings_payload["vocab_type"] = kwargs["vocab_type"]
     if kwargs.get("override_kv") is not None:
         settings_payload["override_kv"] = kwargs["override_kv"]
+    if kwargs.get("task_timeout") is not None:
+        settings_payload["task_timeout"] = kwargs["task_timeout"]
     if kwargs.get("cpu_mode"):
         settings_payload["cpu_mode"] = True
         settings_payload["gpu_layers"] = 0
@@ -537,6 +604,7 @@ def oneshot(prompt, model, **kwargs):
 @cli.command()
 def reload():
     """Force stop and restart the Desktop Application back-end."""
+    config_loader.initialize_for_launch(Path.cwd())
     if is_server_online():
         console.print(
             "[yellow]Active LlamaStudio server detected. Triggering graceful reload...[/yellow]"

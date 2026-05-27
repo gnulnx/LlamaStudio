@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     LLAMA_SERVER_KV_CACHE_TYPE: str = "q8_0"
     LLAMA_SERVER_VOCAB_TYPE: str = "q8_0"
     LLAMA_SERVER_OVERRIDE_KV: str = ""
+    LLAMA_SERVER_TASK_TIMEOUT: int = 900
 
     # Default fallback model path (unused, starts clean without loaded model)
     DEFAULT_MODEL: str = ""
@@ -115,9 +116,11 @@ class Settings(BaseSettings):
 
     # Chat settings
     DEFAULT_SYSTEM_PROMPT: str = "You are a helpful assistant."
-    DEFAULT_TEMPERATURE: float = 0.7
-    DEFAULT_TOP_P: float = 0.9
+    DEFAULT_TEMPERATURE: float = 0.6
+    DEFAULT_TOP_P: float = 0.95
     DEFAULT_MAX_TOKENS: int = 2048
+    CHAT_REQUEST_TIMEOUT: int = 900
+    MAX_TOOL_ITERATIONS: int = 50
 
     # App settings
     APP_PORT: int = 8765
@@ -129,14 +132,14 @@ class Settings(BaseSettings):
 
     # Runtime files stored outside the repository/package in the user's config home
     CONFIG_DIR: str = str(Path.home() / ".config" / "llamastudio")
+    CONFIG_FILE: str = str(Path.home() / ".config" / "llamastudio" / "config.json")
     LOG_DIR: str = str(Path.home() / ".config" / "llamastudio" / "logs")
     CONVERSATIONS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "conversations.json")
+    MODEL_PROFILES_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_profiles.json")
     MODEL_SETTINGS_FILE: str = str(Path.home() / ".config" / "llamastudio" / "model_settings.json")
 
     model_config = {
         "env_prefix": "LLAMASTUDIO_",
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
     }
 
     @classmethod

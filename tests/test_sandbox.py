@@ -13,7 +13,10 @@ from app.tools import check_path_safe, list_dir
 class TestWorkspaceSandboxing(unittest.TestCase):
     def test_default_sandboxing_enabled(self):
         """Test default sandboxing restricts to the default repository root."""
-        with patch("app.tools.settings.DISABLE_SANDBOX", False):
+        with (
+            patch("app.tools.config_loader.sandbox_disabled", return_value=False),
+            patch("app.tools.config_loader.get_workspace_root", return_value=str(Path.cwd())),
+        ):
             # Relative path inside workspace should be safe
             safe_path = check_path_safe("hello.txt")
             self.assertTrue(safe_path.name == "hello.txt")
@@ -30,8 +33,8 @@ class TestWorkspaceSandboxing(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir).resolve()
             with (
-                patch("app.tools.settings.WORKSPACE_ROOT", str(tmp_path)),
-                patch("app.tools.settings.DISABLE_SANDBOX", False),
+                patch("app.tools.config_loader.get_workspace_root", return_value=str(tmp_path)),
+                patch("app.tools.config_loader.sandbox_disabled", return_value=False),
             ):
                 # Inside new workspace root should pass
                 safe_path = check_path_safe("inside.txt")
@@ -43,7 +46,7 @@ class TestWorkspaceSandboxing(unittest.TestCase):
 
     def test_disable_sandbox(self):
         """Test sandboxing is bypassed completely when DISABLE_SANDBOX is True."""
-        with patch("app.tools.settings.DISABLE_SANDBOX", True):
+        with patch("app.tools.config_loader.sandbox_disabled", return_value=True):
             # Paths outside repository should not raise ValueError
             safe_path = check_path_safe("/etc/passwd")
             self.assertEqual(safe_path, Path("/etc/passwd").resolve())
@@ -61,8 +64,11 @@ class TestWorkspaceSandboxing(unittest.TestCase):
 
             # Enable DISABLE_SANDBOX
             with (
-                patch("app.tools.settings.DISABLE_SANDBOX", True),
-                patch("app.tools.settings.WORKSPACE_ROOT", "/nonexistent_workspace_root_path"),
+                patch("app.tools.config_loader.sandbox_disabled", return_value=True),
+                patch(
+                    "app.tools.config_loader.get_workspace_root",
+                    return_value="/nonexistent_workspace_root_path",
+                ),
             ):
                 result = list_dir(str(tmp_path))
                 self.assertIn("test_file.txt", result)

@@ -18,16 +18,25 @@ import webbrowser
 from pathlib import Path
 
 from .config import settings
-from .logger import setup_logging
+from .config_store import config_loader
+from .logger import logger, setup_logging
 from .main import app
+from .model_manager import scan_models
 
-logger = setup_logging()
-
-PID_FILE = Path.home() / ".config" / "llamastudio" / "app.pid"
+PID_FILE = Path(settings.CONFIG_DIR) / "app.pid"
 
 
-def app_url() -> str:
-    return f"http://127.0.0.1:{settings.APP_PORT}"
+def app_url(view: str | None = None) -> str:
+    url = f"http://127.0.0.1:{settings.APP_PORT}"
+    return f"{url}/?view={view}" if view else url
+
+
+def select_launch_view() -> str:
+    return config_loader.get_launch_view(
+        model_loaded=False,
+        models_available=bool(scan_models()),
+        consume_first_launch=True,
+    )
 
 
 def pid_is_running(pid: int) -> bool:
@@ -147,7 +156,7 @@ def remove_pid_file() -> None:
 def open_browser() -> None:
     """Open the browser after a short delay to let the server start."""
     time.sleep(2)
-    url = app_url()
+    url = app_url(select_launch_view())
     logger.info(f"[startup] Opening browser to {url}")
     try:
         webbrowser.open(url)
@@ -157,10 +166,13 @@ def open_browser() -> None:
 
 
 def main() -> None:
+    global logger
     import threading
 
     import uvicorn
 
+    logger = setup_logging()
+    config_loader.initialize_for_launch(Path.cwd())
     stopped_existing = stop_existing_app()
     if port_in_use():
         logger.error(

@@ -16,6 +16,7 @@ from typing import ClassVar
 import httpx
 
 from .config import settings
+from .config_store import config_loader
 from .logger import logger
 
 
@@ -202,7 +203,8 @@ class ChatManager:
             conv.messages.append(Message(role="user", content=user_message))
             self._save_to_disk()
 
-        max_iterations = 5
+        chat_defaults = config_loader.get_chat_defaults()
+        max_iterations = max(1, int(chat_defaults["max_tool_iterations"]))
         iteration = 0
         while iteration < max_iterations:
             iteration += 1
@@ -242,9 +244,9 @@ class ChatManager:
                 "stream": True,
                 "temperature": temperature
                 if temperature is not None
-                else settings.DEFAULT_TEMPERATURE,
-                "top_p": top_p if top_p is not None else settings.DEFAULT_TOP_P,
-                "max_tokens": max_tokens if max_tokens is not None else settings.DEFAULT_MAX_TOKENS,
+                else chat_defaults["temperature"],
+                "top_p": top_p if top_p is not None else chat_defaults["top_p"],
+                "max_tokens": max_tokens if max_tokens is not None else chat_defaults["max_tokens"],
                 "tools": ALL_TOOLS,
                 "tool_choice": "auto",
             }
@@ -262,7 +264,13 @@ class ChatManager:
             tool_calls_accumulated = []
 
             try:
-                with httpx.Client(timeout=120.0) as client:
+                timeout = httpx.Timeout(
+                    connect=10.0,
+                    read=float(chat_defaults["request_timeout"]),
+                    write=30.0,
+                    pool=10.0,
+                )
+                with httpx.Client(timeout=timeout) as client:
                     url = f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/chat/completions"
                     with client.stream("POST", url, json=payload) as resp:
                         if resp.status_code != 200:
@@ -492,10 +500,19 @@ class ChatManager:
 
                     # Continue the while loop to get the next response from the model
                     if iteration >= max_iterations:
-                        logger.warning(
-                            "Reached maximum tool calling iterations. Breaking loop to prevent runaway."
+                        limit_message = (
+                            f"Stopped after {max_iterations} tool-calling rounds to prevent "
+                            "an infinite loop. You can raise this with "
+                            "the app config max_tool_iterations if this task needs more tool use."
                         )
-                        yield f"data: {json.dumps({'error': 'Maximum tool calling iterations reached'})}\n\n"
+                        logger.warning(
+                            "Reached maximum tool calling iterations (%s). Breaking loop to "
+                            "prevent runaway.",
+                            max_iterations,
+                        )
+                        conv.messages.append(Message(role="assistant", content=limit_message))
+                        self._save_to_disk()
+                        yield f"data: {json.dumps({'content': limit_message})}\n\n"
                         yield f"data: {json.dumps({'type': 'end'})}\n\n"
                         break
                     continue
@@ -516,6 +533,19 @@ class ChatManager:
 
             except httpx.ConnectError:
                 yield f"data: {json.dumps({'error': 'Cannot connect to llama-server'})}\n\n"
+                break
+            except httpx.ReadTimeout:
+                message = (
+                    "Timed out waiting for llama-server to produce the next response. "
+                    "Large context turns can take several minutes to prefill; raise "
+                    "the app config chat/server timeout values if this model and context "
+                    "size need more time."
+                )
+                logger.error("Error in stream_chat: %s", message, exc_info=True)
+                conv.messages.append(Message(role="assistant", content=message))
+                self._save_to_disk()
+                yield f"data: {json.dumps({'content': message})}\n\n"
+                yield f"data: {json.dumps({'type': 'end'})}\n\n"
                 break
             except Exception as e:
                 logger.error(f"Error in stream_chat: {e}", exc_info=True)

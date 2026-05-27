@@ -2221,7 +2221,7 @@
             <h3>Switch Model Confirmation</h3>
         </div>
         <div class="modal-body">
-            <p>You already have a model running in your RTX 5090 (32GB VRAM) environment.</p>
+            <p>You already have a model running.</p>
             <div class="eject-warning-card">
                 <i class="fa-solid fa-circle-info"></i>
                 <div>
@@ -2258,6 +2258,7 @@
     let loadedModelPath = '{{ current_model or "" }}';
     let loadedModelName = '{{ current_model_name or "" }}';
     let isServerRunning = {% if server_running %}true{% else %}false{% endif %};
+    let initialLaunchView = '{{ launch_view }}';
     let activeSettingsTab = 'info';
     window.backendGpuInfo = null;
 
@@ -2294,6 +2295,15 @@
         renderConversationsList();
         await fetchDiscoveredModels();
         await fetchSavedModelSettings();
+
+        const requestedView = new URLSearchParams(window.location.search).get('view');
+        const validLaunchViews = ['chat', 'discover', 'models', 'logs'];
+        const launchView = validLaunchViews.includes(requestedView)
+            ? requestedView
+            : initialLaunchView;
+        if (validLaunchViews.includes(launchView)) {
+            switchView(launchView);
+        }
         
         // Initial setup for empty states
         refreshChatEmptyState();
@@ -2669,11 +2679,11 @@
         // Populate new inference settings
         const infSettings = settings.inference_settings || {};
         document.getElementById('param-system-prompt').value = infSettings.system_prompt || 'You are a helpful assistant.';
-        setParamValue('temp-inf', infSettings.temperature !== undefined ? infSettings.temperature : 0.7);
-        setParamValue('topP-inf', infSettings.top_p !== undefined ? infSettings.top_p : 0.9);
-        setParamValue('topK-inf', infSettings.top_k !== undefined ? infSettings.top_k : 40);
-        setParamValue('minP-inf', infSettings.min_p !== undefined ? infSettings.min_p : 0.05);
-        setParamValue('repeatPenalty-inf', infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.1);
+        setParamValue('temp-inf', infSettings.temperature !== undefined ? infSettings.temperature : 0.6);
+        setParamValue('topP-inf', infSettings.top_p !== undefined ? infSettings.top_p : 0.95);
+        setParamValue('topK-inf', infSettings.top_k !== undefined ? infSettings.top_k : 20);
+        setParamValue('minP-inf', infSettings.min_p !== undefined ? infSettings.min_p : 0.0);
+        setParamValue('repeatPenalty-inf', infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.0);
         document.getElementById('param-max-tokens').value = infSettings.max_tokens || 2048;
         document.getElementById('param-stop-sequences').value = infSettings.stop_sequences || '';
 
@@ -2865,7 +2875,7 @@
         
         document.getElementById('globalSystemPrompt').value = infSettings.system_prompt !== undefined ? infSettings.system_prompt : 'You are a helpful assistant.';
         
-        const temp = infSettings.temperature !== undefined ? infSettings.temperature : 0.7;
+        const temp = infSettings.temperature !== undefined ? infSettings.temperature : 0.6;
         document.getElementById('globalTemp').value = temp;
         document.getElementById('valText-temp').textContent = temp;
         
@@ -2873,15 +2883,15 @@
         document.getElementById('globalTopP').value = topP;
         document.getElementById('valText-topP').textContent = topP;
         
-        const topK = infSettings.top_k !== undefined ? infSettings.top_k : 40;
+        const topK = infSettings.top_k !== undefined ? infSettings.top_k : 20;
         document.getElementById('globalTopK').value = topK;
         document.getElementById('valText-topK').textContent = topK;
         
-        const minP = infSettings.min_p !== undefined ? infSettings.min_p : 0.05;
+        const minP = infSettings.min_p !== undefined ? infSettings.min_p : 0.0;
         document.getElementById('globalMinP').value = minP;
         document.getElementById('valText-minP').textContent = minP;
         
-        const repPen = infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.1;
+        const repPen = infSettings.repeat_penalty !== undefined ? infSettings.repeat_penalty : 1.0;
         document.getElementById('globalRepeatPenalty').value = repPen;
         document.getElementById('valText-repeatPenalty').textContent = repPen;
         

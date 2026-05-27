@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from .config import settings
+from .config_store import config_loader
 from .logger import logger
 
 
@@ -81,17 +82,19 @@ class ServerManager:
         if params is None:
             params = {}
 
-        # Merge input params with default settings
-        ctx_size = params.get("ctx_size", settings.LLAMA_SERVER_CTX_SIZE)
-        gpu_layers = 0 if force_cpu else params.get("gpu_layers", settings.LLAMA_SERVER_GPU_LAYERS)
-        flash_attn = params.get("flash_attn", settings.LLAMA_SERVER_FLASH_ATTN)
-        kv_cache_type = params.get("kv_cache_type", settings.LLAMA_SERVER_KV_CACHE_TYPE)
-        vocab_type = params.get("vocab_type", settings.LLAMA_SERVER_VOCAB_TYPE)
+        # Merge input params with first-class app defaults.
+        defaults = config_loader.get_llama_defaults()
+        ctx_size = params.get("ctx_size", defaults["ctx_size"])
+        gpu_layers = 0 if force_cpu else params.get("gpu_layers", defaults["gpu_layers"])
+        flash_attn = params.get("flash_attn", defaults["flash_attn"])
+        kv_cache_type = params.get("kv_cache_type", defaults["kv_cache_type"])
+        vocab_type = params.get("vocab_type", defaults["vocab_type"])
         threads = params.get("threads", 4)
         mmap = params.get("mmap", True)
         seed = params.get("seed", -1)
         rope_freq_base = params.get("rope_freq_base", 0.0)
         rope_freq_scale = params.get("rope_freq_scale", 0.0)
+        task_timeout = params.get("task_timeout", defaults["task_timeout"])
 
         from .config import resolve_llama_server_bin
 
@@ -111,6 +114,8 @@ class ServerManager:
             str(kv_cache_type),
             "-ctv",
             str(vocab_type),
+            "--timeout",
+            str(task_timeout),
         ]
 
         # Handle flash-attn

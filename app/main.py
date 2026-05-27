@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from .chat import chat
 from .config import settings
+from .config_store import config_loader
 from .logger import logger
 from .server_manager import server
 
@@ -30,21 +31,13 @@ if static_dir.exists():
 
 # Helper functions for model settings persistence
 def load_model_settings() -> dict:
-    path = Path(settings.MODEL_SETTINGS_FILE)
-    if path.exists():
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    return config_loader.get_model_settings_registry()
 
 
 def save_model_settings(all_settings: dict):
-    path = Path(settings.MODEL_SETTINGS_FILE)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(all_settings, f, indent=2)
+    for model_path, profile_settings in all_settings.items():
+        if isinstance(profile_settings, dict):
+            config_loader.save_model_profile(model_path, profile_settings)
 
 
 # ─── Page routes ──────────────────────────────────────────────
@@ -54,6 +47,20 @@ def save_model_settings(all_settings: dict):
 async def index(request: Request):
     conversations = chat.list_conversations()
     status = server.get_status()
+    from .model_manager import get_models
+
+    models_available = bool(get_models())
+    query_view = request.query_params.get("view")
+    valid_views = {"chat", "discover", "models", "logs"}
+    if query_view in valid_views:
+        launch_view = query_view
+    else:
+        launch_view = config_loader.get_launch_view(
+            model_loaded=status.get("running", False),
+            models_available=models_available,
+            consume_first_launch=True,
+        )
+    chat_defaults = config_loader.get_chat_defaults()
     return templates.TemplateResponse(
         request,
         name="index.html",
@@ -64,10 +71,11 @@ async def index(request: Request):
             "server_loading": status.get("is_loading", False),
             "current_model": status.get("current_model"),
             "current_model_name": status.get("current_model_name"),
-            "system_prompt": settings.DEFAULT_SYSTEM_PROMPT,
-            "temperature": settings.DEFAULT_TEMPERATURE,
-            "top_p": settings.DEFAULT_TOP_P,
-            "max_tokens": settings.DEFAULT_MAX_TOKENS,
+            "launch_view": launch_view,
+            "system_prompt": chat_defaults["system_prompt"],
+            "temperature": chat_defaults["temperature"],
+            "top_p": chat_defaults["top_p"],
+            "max_tokens": chat_defaults["max_tokens"],
         },
     )
 
@@ -137,6 +145,7 @@ async def load_model(request: Request):
     if not model_path:
         raise HTTPException(400, "Model path is required")
 
+    config_loader.save_model_profile(model_path, model_params)
     result = server.load_model(model_path, model_params)
     if not result:
         raise HTTPException(500, "Failed to load model. Check server logs.")
@@ -166,9 +175,7 @@ async def save_one_model_settings(request: Request):
     if not model_path:
         raise HTTPException(400, "Model path is required")
 
-    all_settings = load_model_settings()
-    all_settings[model_path] = model_params
-    save_model_settings(all_settings)
+    config_loader.save_model_profile(model_path, model_params)
     return {"status": "ok"}
 
 
@@ -208,7 +215,7 @@ async def delete_model(request: Request):
         raise HTTPException(404, "Model file not found on disk")
 
     is_safe = False
-    for allowed_dir in settings.MODEL_DIRS:
+    for allowed_dir in config_loader.get_model_directories():
         allowed_abs = Path(allowed_dir).resolve()
         if allowed_abs in abs_path.parents:
             is_safe = True
@@ -230,7 +237,7 @@ async def delete_model(request: Request):
 
         # Clean up empty parent directories up to the allowed MODEL_DIRS
         parent = abs_path.parent
-        for allowed_dir in settings.MODEL_DIRS:
+        for allowed_dir in config_loader.get_model_directories():
             allowed_abs = Path(allowed_dir).resolve()
             while parent != allowed_abs and parent.exists() and len(list(parent.iterdir())) == 0:
                 parent.rmdir()
@@ -437,6 +444,7 @@ async def send_message(request: Request):
 @app.on_event("startup")
 async def startup():
     """Startup event. The app starts clean without a model loaded."""
+    config_loader.ensure_initialized()
     logger.info(
         "[LLamaStudio] Application started. Access interface on "
         f"http://{settings.APP_HOST}:{settings.APP_PORT}"

@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from .config import settings
+from .config_store import config_loader
 
 
 @dataclass
@@ -71,7 +71,7 @@ def scan_models() -> list[ModelInfo]:
     models = []
     seen_paths = set()
 
-    for model_dir in settings.MODEL_DIRS:
+    for model_dir in config_loader.get_model_directories():
         base = Path(model_dir)
         if not base.exists():
             continue
