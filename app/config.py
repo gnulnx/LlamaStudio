@@ -116,8 +116,8 @@ class Settings(BaseSettings):
 
     # Chat settings
     DEFAULT_SYSTEM_PROMPT: str = "You are a helpful assistant."
-    DEFAULT_TEMPERATURE: float = 0.7
-    DEFAULT_TOP_P: float = 0.9
+    DEFAULT_TEMPERATURE: float = 0.6
+    DEFAULT_TOP_P: float = 0.95
     DEFAULT_MAX_TOKENS: int = 2048
     CHAT_REQUEST_TIMEOUT: int = 900
     MAX_TOOL_ITERATIONS: int = 50
