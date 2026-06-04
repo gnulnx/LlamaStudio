@@ -19,6 +19,8 @@ from pathlib import Path
 
 from .config import settings
 from .config_store import config_loader
+from .launch_context import app_url as build_app_url
+from .launch_context import should_open_browser
 from .logger import logger, setup_logging
 from .main import app
 from .model_manager import scan_models
@@ -27,8 +29,7 @@ PID_FILE = Path(settings.CONFIG_DIR) / "app.pid"
 
 
 def app_url(view: str | None = None) -> str:
-    url = f"http://127.0.0.1:{settings.APP_PORT}"
-    return f"{url}/?view={view}" if view else url
+    return build_app_url(settings.APP_HOST, settings.APP_PORT, view)
 
 
 def select_launch_view() -> str:
@@ -157,6 +158,10 @@ def open_browser() -> None:
     """Open the browser after a short delay to let the server start."""
     time.sleep(2)
     url = app_url(select_launch_view())
+    if not should_open_browser():
+        logger.info(f"[startup] Browser launch skipped; open manually: {url}")
+        return
+
     logger.info(f"[startup] Opening browser to {url}")
     try:
         webbrowser.open(url)

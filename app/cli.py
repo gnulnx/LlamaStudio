@@ -27,14 +27,19 @@ console = Console()
 try:
     from app.config import settings
     from app.config_store import config_loader
+    from app.launch_context import app_url, local_connect_host, should_open_browser
 
     API_PORT = settings.APP_PORT
     API_HOST = settings.APP_HOST
 except ImportError:
     API_PORT = 8765
     API_HOST = "127.0.0.1"
+    app_url = None
+    local_connect_host = None
+    should_open_browser = None
 
-API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+API_CONNECT_HOST = local_connect_host(API_HOST) if local_connect_host else API_HOST
+API_BASE_URL = f"http://{API_CONNECT_HOST}:{API_PORT}"
 
 
 def server_launch_command() -> list[str]:
@@ -43,6 +48,8 @@ def server_launch_command() -> list[str]:
 
 
 def browser_url(view: str | None = None) -> str:
+    if app_url is not None:
+        return app_url(API_HOST, API_PORT, view)
     if view:
         return f"{API_BASE_URL}/?view={view}"
     return API_BASE_URL
@@ -52,7 +59,8 @@ def is_server_online() -> bool:
     """Check if the FastAPI app server is bound and listening on its designated port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
-        return sock.connect_ex((API_HOST, API_PORT)) == 0
+        connect_host = local_connect_host(API_HOST) if local_connect_host else API_HOST
+        return sock.connect_ex((connect_host, API_PORT)) == 0
 
 
 def wait_for_server_ready(timeout: int = 15) -> bool:
@@ -135,15 +143,21 @@ def start():
     if is_server_online():
         view = select_launch_view_for_cli(consume_first_launch=True)
         url = browser_url(view)
-        console.print(f"[green]LlamaStudio is already running.[/green] Opening [cyan]{url}[/cyan]")
-        webbrowser.open(url)
+        if should_open_browser is None or should_open_browser():
+            console.print(
+                f"[green]LlamaStudio is already running.[/green] Opening [cyan]{url}[/cyan]"
+            )
+            webbrowser.open(url)
+        else:
+            console.print(f"[green]LlamaStudio is already running.[/green] Open [cyan]{url}[/cyan]")
         return
 
     if start_server_background():
         console.print(
             Panel(
                 "[bold green]LLamaStudio started.[/bold green]\n\n"
-                f"Web UI and API server is live on [cyan]{API_BASE_URL}[/cyan]",
+                f"Web UI is available at [cyan]{browser_url()}[/cyan]\n"
+                f"API server is bound on [cyan]http://{API_HOST}:{API_PORT}[/cyan]",
                 border_style="green",
             )
         )
@@ -613,11 +627,17 @@ def reload():
         console.print("[yellow]Server is offline. Starting fresh application...[/yellow]")
 
     if start_server_background():
+        browser_message = (
+            "A new web browser tab has been launched automatically."
+            if should_open_browser is None or should_open_browser()
+            else f"Browser launch skipped. Open [cyan]{browser_url()}[/cyan] manually."
+        )
         console.print(
             Panel(
                 "[bold green]LLamaStudio successfully reloaded![/bold green]\n\n"
-                f"Web UI and API server is live on [cyan]http://{API_HOST}:{API_PORT}[/cyan]\n"
-                "A new web browser tab has been launched automatically.",
+                f"Web UI is available at [cyan]{browser_url()}[/cyan]\n"
+                f"API server is bound on [cyan]http://{API_HOST}:{API_PORT}[/cyan]\n"
+                f"{browser_message}",
                 border_style="green",
             )
         )

@@ -98,12 +98,29 @@ class TestCliLoadSettings(unittest.TestCase):
             patch("app.cli.config_loader.initialize_for_launch"),
             patch("app.cli.select_launch_view_for_cli", return_value="models"),
             patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.should_open_browser", return_value=True),
+            patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}),
             patch("app.cli.webbrowser.open") as mock_open,
         ):
             result = CliRunner().invoke(start)
 
         self.assertEqual(result.exit_code, 0, result.output)
-        mock_open.assert_called_once_with("http://127.0.0.1:8765/?view=models")
+        mock_open.assert_called_once_with("http://b2:8765/?view=models")
+
+    def test_start_skips_browser_in_headless_session(self):
+        with (
+            patch("app.cli.config_loader.initialize_for_launch"),
+            patch("app.cli.select_launch_view_for_cli", return_value="models"),
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.should_open_browser", return_value=False),
+            patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}),
+            patch("app.cli.webbrowser.open") as mock_open,
+        ):
+            result = CliRunner().invoke(start)
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        mock_open.assert_not_called()
+        self.assertIn("Open", result.output)
 
     def test_start_launches_background_server_when_offline(self):
         with (

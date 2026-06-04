@@ -124,7 +124,7 @@ class Settings(BaseSettings):
 
     # App settings
     APP_PORT: int = 8765
-    APP_HOST: str = "127.0.0.1"
+    APP_HOST: str = "0.0.0.0"
 
     # Sandbox/Workspace root for tools
     WORKSPACE_ROOT: str = str(Path(__file__).parent.parent.resolve())
