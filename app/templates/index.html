@@ -718,6 +718,44 @@
             border-color: var(--accent);
         }
 
+        .thinking-control {
+            height: 44px;
+            padding: 0 11px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-input);
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            flex-shrink: 0;
+            cursor: pointer;
+            font-size: 11.5px;
+            font-weight: 600;
+            user-select: none;
+        }
+
+        .thinking-control:hover {
+            border-color: var(--accent);
+        }
+
+        .thinking-control input {
+            width: 15px;
+            height: 15px;
+            margin: 0;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .thinking-control input:checked + span {
+            color: var(--accent-hover);
+        }
+
+        .thinking-control:has(input:disabled) {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
         .chat-input {
             flex: 1;
             min-height: 44px;
@@ -1816,6 +1854,10 @@
                                   placeholder="Type a message..." rows="1"
                                   onkeydown="handleChatInputKey(event)"
                                   oninput="autoResizeTextarea(this)"></textarea>
+                        <label class="thinking-control" title="Generate an internal reasoning trace. Turn off for faster direct answers.">
+                            <input type="checkbox" id="chatThinkingToggle" checked aria-label="Enable thinking mode">
+                            <span><i class="fa-solid fa-brain"></i> Thinking</span>
+                        </label>
                         <button class="send-btn" id="sendMsgBtn" onclick="sendChatMessage()">
                             <i class="fa-solid fa-paper-plane"></i>
                         </button>
@@ -2583,6 +2625,7 @@
         const welcome = document.getElementById('emptyWelcomeState');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendMsgBtn');
+        const thinkingToggle = document.getElementById('chatThinkingToggle');
 
         const activeConv = conversations.find(c => c.is_active);
         const hasMessages = activeConv && activeConv.message_count > 0;
@@ -2597,6 +2640,7 @@
                 chatInput.placeholder = "Type a message...";
             }
             if (sendBtn) sendBtn.disabled = false;
+            if (thinkingToggle) thinkingToggle.disabled = false;
             if (welcomeTitle) welcomeTitle.textContent = "Ready to Chat";
             if (welcomeDescription) welcomeDescription.textContent = "Start typing below or open a new conversation thread.";
             if (welcomeQuickLoadBtn) welcomeQuickLoadBtn.style.display = "none";
@@ -2606,6 +2650,7 @@
                 chatInput.placeholder = "Please load a model to begin chatting...";
             }
             if (sendBtn) sendBtn.disabled = true;
+            if (thinkingToggle) thinkingToggle.disabled = true;
             if (welcomeTitle) welcomeTitle.textContent = "No Model Loaded";
             if (welcomeDescription) welcomeDescription.textContent = "You need to load a model before you can start conversing. Switch to the Models tab to customize and load.";
             if (welcomeQuickLoadBtn) welcomeQuickLoadBtn.style.display = discoveredModels.length > 0 ? "block" : "none";
@@ -3637,6 +3682,25 @@
         el.style.height = Math.min(el.scrollHeight, 180) + 'px';
     }
 
+    function buildChatRequestPayload(displayText, outgoingImages) {
+        const thinkingToggle = document.getElementById('chatThinkingToggle');
+        return {
+            message: displayText,
+            images: outgoingImages,
+            enable_thinking: thinkingToggle ? thinkingToggle.checked : true,
+            system_prompt: document.getElementById('globalSystemPrompt').value,
+            temperature: parseFloat(document.getElementById('globalTemp').value),
+            top_p: parseFloat(document.getElementById('globalTopP').value),
+            max_tokens: parseInt(document.getElementById('globalMaxTokens').value) || 2048,
+            top_k: parseInt(document.getElementById('globalTopK').value),
+            min_p: parseFloat(document.getElementById('globalMinP').value),
+            repeat_penalty: parseFloat(document.getElementById('globalRepeatPenalty').value),
+            stop: document.getElementById('globalStop').value
+                ? document.getElementById('globalStop').value.split(',').map(s => s.trim())
+                : []
+        };
+    }
+
     async function sendChatMessage() {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
@@ -3672,6 +3736,8 @@
         document.getElementById('sendMsgBtn').style.display = 'none';
         document.getElementById('stopMsgBtn').style.display = 'flex';
         document.getElementById('sendMsgBtn').disabled = true;
+        const thinkingToggle = document.getElementById('chatThinkingToggle');
+        if (thinkingToggle) thinkingToggle.disabled = true;
 
         let assistantAccumulator = '';
         let reasoningAccumulator = '';
@@ -3682,18 +3748,7 @@
             const res = await fetch('/api/chat/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: displayText,
-                    images: outgoingImages,
-                    system_prompt: document.getElementById('globalSystemPrompt').value,
-                    temperature: parseFloat(document.getElementById('globalTemp').value),
-                    top_p: parseFloat(document.getElementById('globalTopP').value),
-                    max_tokens: parseInt(document.getElementById('globalMaxTokens').value) || 2048,
-                    top_k: parseInt(document.getElementById('globalTopK').value),
-                    min_p: parseFloat(document.getElementById('globalMinP').value),
-                    repeat_penalty: parseFloat(document.getElementById('globalRepeatPenalty').value),
-                    stop: document.getElementById('globalStop').value ? document.getElementById('globalStop').value.split(',').map(s => s.trim()) : []
-                }),
+                body: JSON.stringify(buildChatRequestPayload(displayText, outgoingImages)),
                 signal: activeAbortController.signal
             });
 
@@ -3851,6 +3906,7 @@
             document.getElementById('sendMsgBtn').style.display = 'flex';
             document.getElementById('stopMsgBtn').style.display = 'none';
             document.getElementById('sendMsgBtn').disabled = false;
+            if (thinkingToggle) thinkingToggle.disabled = false;
             input.focus();
             renderConversationsList();
         }

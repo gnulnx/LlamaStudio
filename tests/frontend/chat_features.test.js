@@ -42,6 +42,7 @@ describe("Frontend Chat Settings and Stream Stop Features", () => {
             <div id="chatConfigPane" style="display: none;"></div>
 
             <textarea id="chatInput"></textarea>
+            <input type="checkbox" id="chatThinkingToggle" checked />
             <button id="sendMsgBtn">Send</button>
             <button id="stopMsgBtn" style="display: none;">Stop</button>
             <div id="chatPane">
@@ -125,6 +126,15 @@ describe("Frontend Chat Settings and Stream Stop Features", () => {
         expect(() => {
             window.stopChatMessage();
         }).not.toThrow();
+    });
+
+    test("buildChatRequestPayload sends the thinking toggle state", () => {
+        const toggle = window.document.getElementById('chatThinkingToggle');
+
+        expect(window.buildChatRequestPayload("hello", []).enable_thinking).toBe(true);
+
+        toggle.checked = false;
+        expect(window.buildChatRequestPayload("hello", []).enable_thinking).toBe(false);
     });
 
     test("handleChatImageFiles prepares a dropped raster image and renders a preview", async () => {
