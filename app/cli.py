@@ -27,14 +27,19 @@ console = Console()
 try:
     from app.config import settings
     from app.config_store import config_loader
+    from app.launch_context import app_url, local_connect_host, should_open_browser
 
     API_PORT = settings.APP_PORT
     API_HOST = settings.APP_HOST
 except ImportError:
     API_PORT = 8765
     API_HOST = "127.0.0.1"
+    app_url = None
+    local_connect_host = None
+    should_open_browser = None
 
-API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+API_CONNECT_HOST = local_connect_host(API_HOST) if local_connect_host else API_HOST
+API_BASE_URL = f"http://{API_CONNECT_HOST}:{API_PORT}"
 
 
 def server_launch_command() -> list[str]:
@@ -43,6 +48,8 @@ def server_launch_command() -> list[str]:
 
 
 def browser_url(view: str | None = None) -> str:
+    if app_url is not None:
+        return app_url(API_HOST, API_PORT, view)
     if view:
         return f"{API_BASE_URL}/?view={view}"
     return API_BASE_URL
@@ -52,7 +59,8 @@ def is_server_online() -> bool:
     """Check if the FastAPI app server is bound and listening on its designated port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
-        return sock.connect_ex((API_HOST, API_PORT)) == 0
+        connect_host = local_connect_host(API_HOST) if local_connect_host else API_HOST
+        return sock.connect_ex((connect_host, API_PORT)) == 0
 
 
 def wait_for_server_ready(timeout: int = 15) -> bool:
@@ -135,15 +143,21 @@ def start():
     if is_server_online():
         view = select_launch_view_for_cli(consume_first_launch=True)
         url = browser_url(view)
-        console.print(f"[green]LlamaStudio is already running.[/green] Opening [cyan]{url}[/cyan]")
-        webbrowser.open(url)
+        if should_open_browser is None or should_open_browser():
+            console.print(
+                f"[green]LlamaStudio is already running.[/green] Opening [cyan]{url}[/cyan]"
+            )
+            webbrowser.open(url)
+        else:
+            console.print(f"[green]LlamaStudio is already running.[/green] Open [cyan]{url}[/cyan]")
         return
 
     if start_server_background():
         console.print(
             Panel(
                 "[bold green]LLamaStudio started.[/bold green]\n\n"
-                f"Web UI and API server is live on [cyan]{API_BASE_URL}[/cyan]",
+                f"Web UI is available at [cyan]{browser_url()}[/cyan]\n"
+                f"API server is bound on [cyan]http://{API_HOST}:{API_PORT}[/cyan]",
                 border_style="green",
             )
         )
@@ -468,6 +482,17 @@ def load(model, reload, **kwargs):
 @click.option("--temperature", type=float, help="Override inference temperature")
 @click.option("--top-p", type=float, help="Override Nucleus Sampling top_p")
 @click.option("--max-tokens", type=int, help="Override maximum tokens output constraint")
+@click.option(
+    "--thinking/--no-thinking",
+    default=None,
+    help="Enable or disable model reasoning for this request without reloading the model",
+)
+@click.option(
+    "--image",
+    "image_paths",
+    multiple=True,
+    help="Workspace image path to attach; may be provided more than once",
+)
 def oneshot(prompt, model, **kwargs):
     """Execute a single testing query against a model, showing real-time reasoning and tool outputs."""
     # 1. Load model if specified
@@ -502,12 +527,26 @@ def oneshot(prompt, model, **kwargs):
         console.print(f"[bold red]Failed to contact LlamaStudio server: {e}[/bold red]")
         return
 
+    image_payloads = []
+    if kwargs.get("image_paths"):
+        from app.tools import ToolResult, read_file
+
+        for image_path in kwargs["image_paths"]:
+            result = read_file(image_path)
+            if not isinstance(result, ToolResult) or not result.images:
+                detail = result if isinstance(result, str) else "Unsupported image."
+                console.print(f"[bold red]Could not attach '{image_path}': {detail}[/bold red]")
+                return
+            image_payloads.extend(result.images)
+
     # Start a fresh conversation to avoid history pollution across sequential oneshot runs
     with contextlib.suppress(Exception):
         httpx.post(f"{API_BASE_URL}/api/chat/new")
 
     # 3. Construct chat payload
     payload = {"message": prompt}
+    if image_payloads:
+        payload["images"] = image_payloads
     if kwargs.get("system_prompt") is not None:
         payload["system_prompt"] = kwargs["system_prompt"]
     if kwargs.get("temperature") is not None:
@@ -516,6 +555,8 @@ def oneshot(prompt, model, **kwargs):
         payload["top_p"] = kwargs["top_p"]
     if kwargs.get("max_tokens") is not None:
         payload["max_tokens"] = kwargs["max_tokens"]
+    if kwargs.get("thinking") is not None:
+        payload["enable_thinking"] = kwargs["thinking"]
 
     # 4. Stream chat completions using httpx
     console.print(
@@ -550,6 +591,38 @@ def oneshot(prompt, model, **kwargs):
                         break
 
                     if data.get("type") == "start":
+                        continue
+
+                    if data.get("type") == "metrics":
+                        metrics = data.get("metrics") or {}
+                        total = metrics.get("total_tokens")
+                        prompt_tokens = metrics.get("prompt_tokens")
+                        completion_tokens = metrics.get("completion_tokens")
+                        elapsed = metrics.get("elapsed_seconds")
+                        tokens_per_second = metrics.get("tokens_per_second")
+                        parts = []
+                        if total is not None:
+                            parts.append(f"{total} tokens")
+                        if prompt_tokens is not None and completion_tokens is not None:
+                            parts.append(f"{prompt_tokens} in / {completion_tokens} out")
+                        if elapsed is not None:
+                            parts.append(f"{elapsed:.2f}s")
+                        if tokens_per_second is not None:
+                            parts.append(f"{tokens_per_second:.1f} tok/s")
+                        if parts:
+                            if in_reasoning:
+                                in_reasoning = False
+                                console.print("\n")
+                            console.print(f"\n[dim]{' · '.join(parts)}[/dim]")
+                        continue
+
+                    if data.get("type") == "vision_error":
+                        console.print(f"\n[bold red]Vision Error: {data.get('message')}[/bold red]")
+                        recovery = data.get("recovery") or {}
+                        if recovery.get("status") == "downloadable":
+                            console.print(
+                                f"[yellow]Matching projector: {recovery.get('filename')}[/yellow]"
+                            )
                         continue
 
                     # Handle DeepSeek Chain-of-Thought reasoning
@@ -613,11 +686,17 @@ def reload():
         console.print("[yellow]Server is offline. Starting fresh application...[/yellow]")
 
     if start_server_background():
+        browser_message = (
+            "A new web browser tab has been launched automatically."
+            if should_open_browser is None or should_open_browser()
+            else f"Browser launch skipped. Open [cyan]{browser_url()}[/cyan] manually."
+        )
         console.print(
             Panel(
                 "[bold green]LLamaStudio successfully reloaded![/bold green]\n\n"
-                f"Web UI and API server is live on [cyan]http://{API_HOST}:{API_PORT}[/cyan]\n"
-                "A new web browser tab has been launched automatically.",
+                f"Web UI is available at [cyan]{browser_url()}[/cyan]\n"
+                f"API server is bound on [cyan]http://{API_HOST}:{API_PORT}[/cyan]\n"
+                f"{browser_message}",
                 border_style="green",
             )
         )

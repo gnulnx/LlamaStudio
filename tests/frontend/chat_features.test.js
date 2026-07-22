@@ -42,10 +42,14 @@ describe("Frontend Chat Settings and Stream Stop Features", () => {
             <div id="chatConfigPane" style="display: none;"></div>
 
             <textarea id="chatInput"></textarea>
+            <input type="checkbox" id="chatThinkingToggle" checked />
             <button id="sendMsgBtn">Send</button>
             <button id="stopMsgBtn" style="display: none;">Stop</button>
-            <div id="messagesContainer">
-                <div id="messagesList"></div>
+            <div id="chatPane">
+                <div id="messagesContainer">
+                    <div id="messagesList"></div>
+                </div>
+                <div id="pendingImageTray"></div>
             </div>
 
             <!-- Parameters inside the settings pane -->
@@ -122,5 +126,112 @@ describe("Frontend Chat Settings and Stream Stop Features", () => {
         expect(() => {
             window.stopChatMessage();
         }).not.toThrow();
+    });
+
+    test("buildChatRequestPayload sends the thinking toggle state", () => {
+        const toggle = window.document.getElementById('chatThinkingToggle');
+
+        expect(window.buildChatRequestPayload("hello", []).enable_thinking).toBe(true);
+
+        toggle.checked = false;
+        expect(window.buildChatRequestPayload("hello", []).enable_thinking).toBe(false);
+    });
+
+    test("handleChatImageFiles prepares a dropped raster image and renders a preview", async () => {
+        const image = new window.File(
+            [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+            "small.png",
+            { type: "image/png" }
+        );
+
+        await window.handleChatImageFiles([image]);
+
+        const tray = window.document.getElementById('pendingImageTray');
+        expect(tray.style.display).toBe('flex');
+        expect(tray.querySelectorAll('.pending-image')).toHaveLength(1);
+        expect(tray.querySelector('img').src).toMatch(/^data:image\/png;base64,/);
+    });
+
+    test("handleChatDrop accepts image files from the chat pane", async () => {
+        const image = new window.File(
+            [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+            "dropped.png",
+            { type: "image/png" }
+        );
+        const preventDefault = jest.fn();
+        const pane = window.document.getElementById('chatPane');
+        pane.classList.add('drag-active');
+
+        await window.handleChatDrop({
+            preventDefault,
+            dataTransfer: { files: [image] }
+        });
+
+        expect(preventDefault).toHaveBeenCalled();
+        expect(pane.classList.contains('drag-active')).toBe(false);
+        expect(window.document.querySelectorAll('.pending-image')).toHaveLength(1);
+    });
+
+    test("removePendingChatImage clears the prepared attachment", async () => {
+        const image = new window.File(
+            [new Uint8Array([0xff, 0xd8, 0xff, 0xd9])],
+            "small.jpg",
+            { type: "image/jpeg" }
+        );
+        await window.handleChatImageFiles([image]);
+
+        window.removePendingChatImage(0);
+
+        const tray = window.document.getElementById('pendingImageTray');
+        expect(tray.style.display).toBe('none');
+        expect(tray.querySelectorAll('.pending-image')).toHaveLength(0);
+    });
+
+    test("renderChatImages rejects non-raster data URLs", () => {
+        const html = window.renderChatImages([{
+            name: "unsafe.svg",
+            data_url: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+        }]);
+
+        expect(html).toBe('');
+    });
+
+    test("renderVisionRecovery offers the resolved projector download", () => {
+        const html = window.renderVisionRecovery("Projector missing.", {
+            status: "downloadable",
+            repo_id: "author/model",
+            filename: "mmproj-f16.gguf",
+            model_path: "/models/model.gguf",
+            size: 990000000
+        });
+
+        expect(html).toContain("Download projector");
+        expect(html).toContain("mmproj-f16.gguf");
+        expect(html).toContain("data-recovery=");
+    });
+
+    test("renderMessagesContent shows compact persisted response metrics", () => {
+        window.renderMessagesContent([{
+            role: "assistant",
+            content: null,
+            metrics: {
+                prompt_tokens: 19,
+                completion_tokens: 7,
+                total_tokens: 26,
+                cached_tokens: 5,
+                elapsed_seconds: 0.21,
+                prompt_seconds: 0.042,
+                generation_seconds: 0.018,
+                tokens_per_second: 33.3
+            }
+        }]);
+
+        const metrics = window.document.querySelector('.response-metrics');
+        expect(metrics).not.toBeNull();
+        expect(metrics.textContent).toContain("26 tokens");
+        expect(metrics.textContent).toContain("19 in / 7 out");
+        expect(metrics.textContent).toContain("0.21s");
+        expect(metrics.textContent).toContain("33.3 tok/s");
+        expect(metrics.title).toContain("5 cached prompt tokens");
     });
 });

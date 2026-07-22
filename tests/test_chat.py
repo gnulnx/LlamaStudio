@@ -1,16 +1,19 @@
+import base64
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 import httpx
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.chat import chat
+from app.chat import MAX_TOOL_RESULT_CHARS, ImageAttachment, chat
+from app.tools import ToolResult
 
 
 class FakeStreamResponse:
@@ -33,6 +36,21 @@ class FakeStreamResponse:
             ]
         }
         yield f"data: {json.dumps(chunk)}"
+        usage_chunk = {
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 19,
+                "completion_tokens": 7,
+                "total_tokens": 26,
+                "prompt_tokens_details": {"cached_tokens": 5},
+            },
+            "timings": {
+                "prompt_ms": 42.254,
+                "predicted_ms": 18.364,
+                "predicted_per_second": 163.363,
+            },
+        }
+        yield f"data: {json.dumps(usage_chunk)}"
         yield "data: [DONE]"
 
 
@@ -83,6 +101,31 @@ class FakeToolStreamResponse:
         yield "data: [DONE]"
 
 
+class FakeReadImageToolStreamResponse(FakeToolStreamResponse):
+    def iter_lines(self):
+        chunk = {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_read_image",
+                                "type": "function",
+                                "function": {
+                                    "name": "read_file",
+                                    "arguments": json.dumps({"file_path": "small.png"}),
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        yield f"data: {json.dumps(chunk)}"
+        yield "data: [DONE]"
+
+
 class FakeToolHttpClient:
     def __init__(self, *args, **kwargs):
         pass
@@ -95,6 +138,24 @@ class FakeToolHttpClient:
 
     def stream(self, method, url, json):
         return FakeToolStreamResponse()
+
+
+class CapturingHttpClient(FakeHttpClient):
+    payloads: ClassVar[list[dict]] = []
+
+    def stream(self, method, url, json):
+        self.payloads.append(json)
+        return FakeStreamResponse()
+
+
+class CapturingToolThenTextHttpClient(FakeHttpClient):
+    payloads: ClassVar[list[dict]] = []
+
+    def stream(self, method, url, json):
+        self.payloads.append(json)
+        if len(self.payloads) == 1:
+            return FakeReadImageToolStreamResponse()
+        return FakeStreamResponse()
 
 
 class FakeReadTimeoutHttpClient:
@@ -112,6 +173,17 @@ class FakeReadTimeoutHttpClient:
 
 
 class TestChatStreaming(unittest.TestCase):
+    @staticmethod
+    def image_attachment():
+        image_bytes = b"\x89PNG\r\n\x1a\nsmall-image"
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return ImageAttachment.from_payload({
+            "name": "small.png",
+            "mime_type": "image/png",
+            "data_url": f"data:image/png;base64,{encoded}",
+            "size": len(image_bytes),
+        })
+
     def chat_defaults(self, max_tool_iterations=50):
         return {
             "system_prompt": "You are a helpful assistant.",
@@ -136,9 +208,17 @@ class TestChatStreaming(unittest.TestCase):
                 patch("app.chat.httpx.Client", FakeHttpClient),
             ):
                 events = list(chat.stream_chat("hello"))
+                conv = chat.get_active()
 
         self.assertTrue(any('"type": "end"' in event for event in events))
         self.assertTrue(any("Plain response with no tool call." in event for event in events))
+        self.assertTrue(any('"type": "metrics"' in event for event in events))
+        self.assertIsNotNone(conv)
+        self.assertEqual(conv.messages[-1].metrics["total_tokens"], 26)
+        self.assertEqual(conv.messages[-1].metrics["cached_tokens"], 5)
+        self.assertEqual(conv.messages[-1].metrics["prompt_seconds"], 0.042)
+        self.assertEqual(conv.messages[-1].metrics["generation_seconds"], 0.018)
+        self.assertEqual(conv.messages[-1].metrics["tokens_per_second"], 163.363)
 
     def test_tool_iteration_limit_is_configurable_and_saved_as_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +267,89 @@ class TestChatStreaming(unittest.TestCase):
         self.assertIsNotNone(conv)
         self.assertEqual(conv.messages[-1].role, "assistant")
         self.assertIn("Timed out waiting for llama-server", conv.messages[-1].content)
+
+    def test_direct_image_is_sent_as_image_url_content_not_tokenized_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+            CapturingHttpClient.payloads = []
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(),
+                ),
+                patch("app.chat.httpx.Client", CapturingHttpClient),
+                patch(
+                    "app.server_manager.server.supports_multimodal",
+                    return_value=True,
+                ),
+            ):
+                list(
+                    chat.stream_chat(
+                        "What is in this image?",
+                        images=[self.image_attachment()],
+                        enable_thinking=False,
+                    )
+                )
+
+        content = next(
+            message["content"]
+            for message in CapturingHttpClient.payloads[0]["messages"]
+            if message["role"] == "user"
+        )
+        self.assertEqual(content[0], {"type": "text", "text": "What is in this image?"})
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+        self.assertEqual(CapturingHttpClient.payloads[0]["stream_options"], {"include_usage": True})
+        self.assertEqual(
+            CapturingHttpClient.payloads[0]["chat_template_kwargs"],
+            {"enable_thinking": False},
+        )
+
+    def test_read_file_image_becomes_short_tool_text_plus_multimodal_user_part(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+            CapturingToolThenTextHttpClient.payloads = []
+            attachment = self.image_attachment()
+            tool_result = ToolResult(
+                content="Loaded image 'small.png' (19 bytes) as multimodal input.",
+                images=[attachment.to_dict()],
+            )
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(max_tool_iterations=3),
+                ),
+                patch("app.chat.httpx.Client", CapturingToolThenTextHttpClient),
+                patch("app.tools.execute_tool", return_value=tool_result),
+                patch(
+                    "app.server_manager.server.supports_multimodal",
+                    return_value=True,
+                ),
+            ):
+                list(chat.stream_chat("Inspect small.png"))
+
+        second_messages = CapturingToolThenTextHttpClient.payloads[1]["messages"]
+        tool_message = next(message for message in second_messages if message["role"] == "tool")
+        image_message = second_messages[second_messages.index(tool_message) + 1]
+        self.assertLess(len(tool_message["content"]), 100)
+        self.assertEqual(image_message["role"], "user")
+        self.assertEqual(image_message["content"][1]["type"], "image_url")
+
+    def test_legacy_oversized_tool_output_is_bounded_before_api_request(self):
+        from app.chat import _bounded_tool_result
+
+        bounded = _bounded_tool_result("x" * (MAX_TOOL_RESULT_CHARS + 500))
+
+        self.assertIn("Tool output truncated", bounded)
+        self.assertLess(len(bounded), MAX_TOOL_RESULT_CHARS + 100)
 
 
 if __name__ == "__main__":

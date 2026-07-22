@@ -24,6 +24,7 @@ class ModelInfo:
     quant: str | None = None
     is_multimodal: bool = False
     is_mmproj: bool = False
+    mmproj_path: str | None = None
 
 
 def _parse_quant(filename: str) -> str | None:
@@ -66,6 +67,102 @@ def _is_multimodal(filename: str) -> bool:
     return "mmproj" in filename.lower() or "vision" in filename.lower()
 
 
+def _projector_rank(path: str | Path) -> tuple[int, str]:
+    name = Path(path).name.lower()
+    if "f32" in name:
+        quality_rank = 0
+    elif "bf16" in name or "f16" in name:
+        quality_rank = 1
+    elif "q8" in name:
+        quality_rank = 2
+    elif "q6" in name:
+        quality_rank = 3
+    elif "q5" in name:
+        quality_rank = 4
+    elif "q4" in name:
+        quality_rank = 5
+    else:
+        quality_rank = 6
+    return quality_rank, name
+
+
+def find_mmproj(model_path: str | Path) -> str | None:
+    """Find the preferred multimodal projector beside a GGUF model."""
+    model_file = Path(model_path)
+    if not model_file.parent.exists():
+        return None
+
+    candidates = [
+        path
+        for path in model_file.parent.glob("*.gguf")
+        if path.is_file() and _is_mmproj(path.name)
+    ]
+    if not candidates:
+        return None
+
+    return str(min(candidates, key=_projector_rank))
+
+
+def infer_huggingface_repo_id(model_path: str | Path) -> str | None:
+    """Infer the Hub repo from the standard <root>/<author>/<repo>/<file> layout."""
+    model_file = Path(model_path).expanduser().resolve()
+    for model_dir in config_loader.get_model_directories():
+        try:
+            relative = model_file.relative_to(Path(model_dir).expanduser().resolve())
+        except ValueError:
+            continue
+        if len(relative.parts) >= 3:
+            return f"{relative.parts[0]}/{relative.parts[1]}"
+    return None
+
+
+async def resolve_model_projector(model_path: str | Path) -> dict[str, Any]:
+    """Resolve a local or downloadable projector for a scanned model."""
+    model_file = Path(model_path).expanduser().resolve()
+    local_projector = find_mmproj(model_file)
+    if local_projector:
+        return {
+            "status": "local",
+            "model_path": str(model_file),
+            "projector_path": local_projector,
+        }
+
+    repo_id = infer_huggingface_repo_id(model_file)
+    if not repo_id:
+        return {"status": "unavailable", "model_path": str(model_file)}
+
+    details = await get_huggingface_model_details(repo_id)
+    if not details:
+        return {
+            "status": "unavailable",
+            "model_path": str(model_file),
+            "repo_id": repo_id,
+        }
+
+    candidates = [
+        sibling
+        for sibling in details.get("siblings", [])
+        if isinstance(sibling.get("rfilename"), str)
+        and sibling["rfilename"].lower().endswith(".gguf")
+        and _is_mmproj(Path(sibling["rfilename"]).name)
+    ]
+    if not candidates:
+        return {
+            "status": "unavailable",
+            "model_path": str(model_file),
+            "repo_id": repo_id,
+        }
+
+    selected = min(candidates, key=lambda item: _projector_rank(item["rfilename"]))
+    return {
+        "status": "downloadable",
+        "model_path": str(model_file),
+        "repo_id": repo_id,
+        "filename": selected["rfilename"],
+        "size": selected.get("size"),
+    }
+
+
 def scan_models() -> list[ModelInfo]:
     """Scan model directories for GGUF files and return model info."""
     models = []
@@ -88,6 +185,7 @@ def scan_models() -> list[ModelInfo]:
             name = gguf.stem
             # Clean up the name by removing common prefixes/suffixes
             name = re.sub(r"[-_.]gguf$", "", name, flags=re.IGNORECASE)
+            mmproj_path = find_mmproj(gguf)
 
             models.append(
                 ModelInfo(
@@ -96,7 +194,8 @@ def scan_models() -> list[ModelInfo]:
                     size=gguf.stat().st_size,
                     size_human=_format_size(gguf.stat().st_size),
                     quant=_parse_quant(gguf.name),
-                    is_multimodal=_is_multimodal(gguf.name),
+                    is_multimodal=bool(mmproj_path) or _is_multimodal(gguf.name),
+                    mmproj_path=mmproj_path,
                 )
             )
 

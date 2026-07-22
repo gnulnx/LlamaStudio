@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .chat import chat
+from .chat import chat, validate_image_attachments
 from .config import settings
 from .config_store import config_loader
 from .logger import logger
@@ -38,6 +38,17 @@ def save_model_settings(all_settings: dict):
     for model_path, profile_settings in all_settings.items():
         if isinstance(profile_settings, dict):
             config_loader.save_model_profile(model_path, profile_settings)
+
+
+def _get_scanned_model(model_path: str):
+    """Return an exact scanned model match, preventing arbitrary model-path operations."""
+    from .model_manager import get_models
+
+    requested = Path(model_path).expanduser().resolve()
+    return next(
+        (model for model in get_models() if Path(model.path).expanduser().resolve() == requested),
+        None,
+    )
 
 
 # ─── Page routes ──────────────────────────────────────────────
@@ -129,6 +140,7 @@ async def list_models():
                 "size_human": m.size_human,
                 "quant": m.quant,
                 "is_multimodal": m.is_multimodal,
+                "mmproj_path": m.mmproj_path,
                 "is_loaded": m.path == server._current_model,
             }
             for m in models
@@ -151,6 +163,37 @@ async def load_model(request: Request):
         raise HTTPException(500, "Failed to load model. Check server logs.")
 
     return {"status": "ok", "model": model_path, "running": server.is_running}
+
+
+@app.post("/api/models/reload-current")
+async def reload_current_model():
+    """Reload the active model so a newly downloaded projector is attached."""
+    model_path = server._current_model
+    if not model_path:
+        raise HTTPException(409, "No model is currently loaded.")
+
+    model_params = dict(server._current_params)
+    model_params.pop("mmproj", None)
+    if not server.load_model(model_path, model_params):
+        raise HTTPException(500, "Failed to reload the model with its vision projector.")
+
+    return {
+        "status": "ok",
+        "model": model_path,
+        "multimodal": server.supports_multimodal(),
+    }
+
+
+@app.get("/api/models/projector")
+async def get_model_projector(model_path: str):
+    """Resolve a local or downloadable projector for a scanned model."""
+    model = _get_scanned_model(model_path)
+    if model is None:
+        raise HTTPException(404, "Model is not present in a configured model directory.")
+
+    from .model_manager import resolve_model_projector
+
+    return await resolve_model_projector(model.path)
 
 
 @app.post("/api/models/eject")
@@ -194,6 +237,7 @@ async def refresh_models():
                 "size_human": m.size_human,
                 "quant": m.quant,
                 "is_multimodal": m.is_multimodal,
+                "mmproj_path": m.mmproj_path,
                 "is_loaded": m.path == server._current_model,
             }
             for m in models
@@ -283,6 +327,7 @@ async def download_model(request: Request):
     body = await request.json()
     repo_id = body.get("repo_id")
     filename = body.get("filename")
+    target_model_path = body.get("target_model_path")
 
     if not repo_id or not filename:
         raise HTTPException(400, "Both repo_id and filename are required.")
@@ -292,7 +337,24 @@ async def download_model(request: Request):
     if downloader.is_active:
         raise HTTPException(409, "Another download is already in progress.")
 
-    success = await downloader.start_download(repo_id, filename)
+    target_dir = None
+    if target_model_path:
+        model = _get_scanned_model(target_model_path)
+        if model is None:
+            raise HTTPException(404, "Target model is not present in a configured model directory.")
+
+        from .model_manager import resolve_model_projector
+
+        projector = await resolve_model_projector(model.path)
+        if (
+            projector.get("status") != "downloadable"
+            or projector.get("repo_id") != repo_id
+            or projector.get("filename") != filename
+        ):
+            raise HTTPException(400, "Requested file is not the resolved projector for this model.")
+        target_dir = str(Path(model.path).parent)
+
+    success = await downloader.start_download(repo_id, filename, target_dir=target_dir)
     if not success:
         raise HTTPException(500, "Failed to start background download.")
 
@@ -369,6 +431,9 @@ async def switch_conversation(conv_id: str):
                 "tool_calls": m.tool_calls,
                 "tool_call_id": m.tool_call_id,
                 "name": m.name,
+                "images": [image.to_dict() for image in m.images],
+                "vision_recovery": m.vision_recovery,
+                "metrics": m.metrics,
             }
             for m in conv.messages
         ],
@@ -398,6 +463,10 @@ async def send_message(request: Request):
     """Receive a message and stream the response back via SSE."""
     body = await request.json()
     user_msg = body.get("message", "").strip()
+    try:
+        images = validate_image_attachments(body.get("images"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     temperature = body.get("temperature")
     top_p = body.get("top_p")
     max_tokens = body.get("max_tokens")
@@ -406,12 +475,22 @@ async def send_message(request: Request):
     min_p = body.get("min_p")
     repeat_penalty = body.get("repeat_penalty")
     stop = body.get("stop")
+    enable_thinking = body.get("enable_thinking")
+    if enable_thinking is not None and not isinstance(enable_thinking, bool):
+        raise HTTPException(400, "enable_thinking must be a boolean")
 
-    if not user_msg:
+    if not user_msg and not images:
         raise HTTPException(400, "Empty message")
+    if not user_msg:
+        user_msg = "Describe this image."
 
     if not server.is_running:
         raise HTTPException(503, "llama-server is not running")
+    vision_recovery = None
+    if images and not server.supports_multimodal():
+        from .model_manager import resolve_model_projector
+
+        vision_recovery = await resolve_model_projector(server._current_model)
 
     def event_generator():
         yield "data: {'type': 'start'}\n\n"
@@ -425,6 +504,9 @@ async def send_message(request: Request):
             min_p=min_p,
             repeat_penalty=repeat_penalty,
             stop=stop,
+            images=images,
+            vision_recovery=vision_recovery,
+            enable_thinking=enable_thinking,
         )
         yield "data: {'type': 'end'}\n\n"
 

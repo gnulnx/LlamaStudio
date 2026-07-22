@@ -30,6 +30,7 @@ Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Est
 - **📂 Automatic Model Scanning**: Scans standard directories (like `~/.lmstudio/models`) automatically on startup or via a one-click rescan button.
 - **🪐 Process Lifecycle Manager**: The underlying `llama-server` process only spins up when you explicitly load a model, releasing all system resources and GPU VRAM instantly when you click "Eject".
 - **🔧 Configurable Workspace Sandboxing**: Supports sandboxed agentic tool use (file read/write, commands, etc.) with real-time logs in the UI. Workspace and permission defaults are stored in the first-class app config.
+- **👁️ Multimodal Image Chat**: Drag raster images into chat or attach workspace images with `lls oneshot --image`; matching GGUF vision projectors are detected and recoverable from the UI.
 - **🖥️ XDG-Compliant Persistence**: App config, conversations, and first-class model profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations.
 - **📦 Full Linux & macOS Portability**: Server binaries and model directories are resolved dynamically on startup.
 
@@ -188,7 +189,14 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
 | `eject` | `lls eject` | Gracefully unloads the active model to free GPU and CPU RAM. |
-| `oneshot`| `lls oneshot "prompt"` | Streams thinking traces, text, and executes agentic tools directly in your terminal. |
+| `oneshot`| `lls oneshot [--image PATH] [--no-thinking] [--max-tokens N] "prompt"` | Streams text, optional reasoning, tool calls, and multimodal workspace images directly in your terminal. Use `--no-thinking` for low-latency direct answers. |
+
+For low-latency vision classification, disable reasoning and keep the answer budget small:
+
+```bash
+lls oneshot --no-thinking --temperature 0 --max-tokens 32 \
+  --image camera-frame.png "Answer in 10 words or fewer: what is ahead?"
+```
 
 For example, to boot a model interactively:
 ```bash

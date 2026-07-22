@@ -10,7 +10,8 @@ from click.testing import CliRunner
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.cli import load, load_saved_model_settings, select_launch_view_for_cli, start
+from app.cli import load, load_saved_model_settings, oneshot, select_launch_view_for_cli, start
+from app.tools import ToolResult
 
 
 class FakeLoadResponse:
@@ -24,6 +25,22 @@ class FakeStatusResponse:
 
     def json(self):
         return {"running": self.running}
+
+
+class FakeChatStreamResponse:
+    status_code = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield 'data: {"type":"start"}'
+        yield 'data: {"content":"A bicycle."}'
+        yield 'data: {"type":"metrics","metrics":{"prompt_tokens":19,"completion_tokens":7,"total_tokens":26,"elapsed_seconds":0.21,"tokens_per_second":33.3}}'
+        yield 'data: {"type":"end"}'
 
 
 class TestCliLoadSettings(unittest.TestCase):
@@ -98,12 +115,29 @@ class TestCliLoadSettings(unittest.TestCase):
             patch("app.cli.config_loader.initialize_for_launch"),
             patch("app.cli.select_launch_view_for_cli", return_value="models"),
             patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.should_open_browser", return_value=True),
+            patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}),
             patch("app.cli.webbrowser.open") as mock_open,
         ):
             result = CliRunner().invoke(start)
 
         self.assertEqual(result.exit_code, 0, result.output)
-        mock_open.assert_called_once_with("http://127.0.0.1:8765/?view=models")
+        mock_open.assert_called_once_with("http://b2:8765/?view=models")
+
+    def test_start_skips_browser_in_headless_session(self):
+        with (
+            patch("app.cli.config_loader.initialize_for_launch"),
+            patch("app.cli.select_launch_view_for_cli", return_value="models"),
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.should_open_browser", return_value=False),
+            patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}),
+            patch("app.cli.webbrowser.open") as mock_open,
+        ):
+            result = CliRunner().invoke(start)
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        mock_open.assert_not_called()
+        self.assertIn("Open", result.output)
 
     def test_start_launches_background_server_when_offline(self):
         with (
@@ -131,6 +165,49 @@ class TestCliLoadSettings(unittest.TestCase):
             models_available=False,
             consume_first_launch=True,
         )
+
+    def test_oneshot_image_uses_token_safe_multimodal_payload(self):
+        tool_result = ToolResult(
+            content="Loaded image.",
+            images=[
+                {
+                    "name": "bike.png",
+                    "mime_type": "image/png",
+                    "data_url": "data:image/png;base64,iVBORw0KGgo=",
+                    "size": 8,
+                }
+            ],
+        )
+
+        with (
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+            patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+            patch("app.tools.read_file", return_value=tool_result),
+            patch(
+                "app.cli.httpx.stream",
+                return_value=FakeChatStreamResponse(),
+            ) as mock_stream,
+        ):
+            result = CliRunner().invoke(
+                oneshot,
+                [
+                    "--no-thinking",
+                    "--image",
+                    "test_imgs/bike.png",
+                    "What is in this image?",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = mock_stream.call_args.kwargs["json"]
+        self.assertEqual(payload["message"], "What is in this image?")
+        self.assertEqual(payload["images"], tool_result.images)
+        self.assertIs(payload["enable_thinking"], False)
+        self.assertIn("A bicycle.", result.output)
+        self.assertIn("26 tokens", result.output)
+        self.assertIn("19 in / 7 out", result.output)
+        self.assertIn("33.3 tok/s", result.output)
 
 
 if __name__ == "__main__":

@@ -133,12 +133,12 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
         await downloader.cancel_download()
 
     @patch("app.model_manager.refresh_models")
-    @patch("app.downloader.settings")
+    @patch("app.downloader.config_loader.get_model_directories")
     async def test_download_loop_uses_direct_huggingface_download(
-        self, mock_settings, mock_refresh
+        self, mock_model_directories, mock_refresh
     ):
         with tempfile.TemporaryDirectory() as tmp:
-            mock_settings.MODEL_DIRS = [tmp]
+            mock_model_directories.return_value = [tmp]
 
             async def fake_download(repo_id, filename, tmp_path):
                 self.assertEqual(repo_id, "author/repo")
