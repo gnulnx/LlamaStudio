@@ -9,6 +9,7 @@ from urllib.parse import quote
 import httpx
 
 from .config import settings
+from .config_store import config_loader
 from .logger import logger
 
 
@@ -64,7 +65,12 @@ class ModelDownloader:
             "error": self.error_message,
         }
 
-    async def start_download(self, repo_id: str, filename: str) -> bool:
+    async def start_download(
+        self,
+        repo_id: str,
+        filename: str,
+        target_dir: str | Path | None = None,
+    ) -> bool:
         if self.is_active:
             logger.warning("[downloader] Another download task is already active.")
             return False
@@ -78,7 +84,9 @@ class ModelDownloader:
         self.error_message = None
 
         self._cancel_event = asyncio.Event()
-        self._active_task = asyncio.create_task(self._download_loop(repo_id, filename))
+        self._active_task = asyncio.create_task(
+            self._download_loop(repo_id, filename, target_dir=target_dir)
+        )
         return True
 
     async def cancel_download(self):
@@ -96,12 +104,21 @@ class ModelDownloader:
         self._active_task = None
         self._cancel_event = None
 
-    async def _download_loop(self, repo_id: str, filename: str):
-        # Build local target directory: settings.MODEL_DIRS[0] / author / repo_name / filename
+    async def _download_loop(
+        self,
+        repo_id: str,
+        filename: str,
+        target_dir: str | Path | None = None,
+    ):
+        model_directories = config_loader.get_model_directories()
         base_dir = Path(
-            settings.MODEL_DIRS[0]
-            if settings.MODEL_DIRS
-            else str(Path.home() / ".lmstudio" / "models")
+            model_directories[0]
+            if model_directories
+            else (
+                settings.MODEL_DIRS[0]
+                if settings.MODEL_DIRS
+                else str(Path.home() / ".lmstudio" / "models")
+            )
         )
 
         parts = repo_id.split("/")
@@ -110,12 +127,23 @@ class ModelDownloader:
         else:
             author, repo_name = "huggingface", parts[0]
 
-        target_dir = base_dir / author / repo_name
-        target_path = target_dir / filename
-        tmp_path = target_dir / f"{filename}.tmp"
+        destination_dir = Path(target_dir) if target_dir else base_dir / author / repo_name
+        destination_dir = destination_dir.expanduser().resolve()
+        relative_file = Path(filename)
+        if relative_file.is_absolute() or ".." in relative_file.parts:
+            self.status = "failed"
+            self.error_message = "Unsafe Hugging Face filename."
+            return
+
+        target_path = (destination_dir / relative_file).resolve()
+        if destination_dir not in target_path.parents:
+            self.status = "failed"
+            self.error_message = "Download target escapes the model directory."
+            return
+        tmp_path = target_path.with_name(f"{target_path.name}.tmp")
 
         try:
-            target_dir.mkdir(parents=True, exist_ok=True)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
 
             await self._download_from_huggingface(
                 repo_id,

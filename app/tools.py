@@ -5,11 +5,38 @@ Defines OpenAI-compatible schemas and implements execution for workspace-sandbox
 
 from __future__ import annotations
 
+import base64
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config_store import config_loader
 from .logger import logger
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    """A tool result plus non-text media to include in the next model turn."""
+
+    content: str
+    images: list[dict] = field(default_factory=list)
+
+
+def _detect_image_mime(header: bytes) -> str | None:
+    """Return a supported raster MIME type based on file signature."""
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if header.startswith(b"BM"):
+        return "image/bmp"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def check_path_safe(file_path: str) -> Path:
@@ -47,14 +74,39 @@ def write_file(file_path: str, content: str) -> str:
         return f"Error executing write_file: {e}"
 
 
-def read_file(file_path: str) -> str:
-    """Read and return the complete text content of a file in the workspace directory."""
+def read_file(file_path: str) -> str | ToolResult:
+    """Read text, or return raster images as token-safe multimodal content."""
     try:
         safe_path = check_path_safe(file_path)
         if not safe_path.exists():
             return f"Error: File '{file_path}' does not exist."
         if not safe_path.is_file():
             return f"Error: '{file_path}' is a directory, not a file."
+
+        with open(safe_path, "rb") as image_file:
+            header = image_file.read(16)
+            mime_type = _detect_image_mime(header)
+            if mime_type:
+                size = safe_path.stat().st_size
+                if size > MAX_IMAGE_BYTES:
+                    return (
+                        f"Error: Image '{file_path}' is {size} bytes; the maximum supported "
+                        f"image size is {MAX_IMAGE_BYTES} bytes."
+                    )
+                image_file.seek(0)
+                encoded = base64.b64encode(image_file.read()).decode("ascii")
+                return ToolResult(
+                    content=(f"Loaded image '{file_path}' ({size} bytes) as multimodal input."),
+                    images=[
+                        {
+                            "name": safe_path.name,
+                            "mime_type": mime_type,
+                            "data_url": f"data:{mime_type};base64,{encoded}",
+                            "size": size,
+                        }
+                    ],
+                )
+
         with open(safe_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
         return content
@@ -157,7 +209,7 @@ ALL_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the complete contents of a text file inside the workspace directory.",
+            "description": "Read a text file or load a supported raster image (PNG, JPEG, WebP, GIF, or BMP) as multimodal input from inside the workspace directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -219,7 +271,7 @@ ALL_TOOLS = [
 ]
 
 
-def execute_tool(name: str, arguments: dict) -> str:
+def execute_tool(name: str, arguments: dict) -> str | ToolResult:
     """Central tool dispatcher."""
     if name == "write_file":
         return write_file(arguments.get("file_path"), arguments.get("content"))

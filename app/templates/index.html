@@ -302,6 +302,24 @@
             flex-direction: column;
             overflow: hidden;
             background: var(--bg-primary);
+            position: relative;
+        }
+
+        .chat-pane.drag-active::after {
+            content: "Drop images to attach";
+            position: absolute;
+            inset: 12px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed var(--accent);
+            border-radius: 16px;
+            background: rgba(18, 18, 28, 0.9);
+            color: var(--accent-hover);
+            font-size: 18px;
+            font-weight: 700;
+            pointer-events: none;
         }
 
         /* Top Header */
@@ -526,6 +544,24 @@
             display: block;
         }
 
+        .response-metrics {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+            padding-top: 7px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            color: var(--text-muted);
+            font-size: 10.5px;
+            line-height: 1.2;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .response-metrics .metric-separator {
+            opacity: 0.55;
+        }
+
         /* Collapsible Reasoning Block */
         details.reasoning {
             border: 1px solid var(--border);
@@ -592,6 +628,94 @@
             display: flex;
             gap: 12px;
             align-items: flex-end;
+        }
+
+        .pending-image-tray {
+            max-width: 840px;
+            margin: 0 auto 10px;
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pending-image {
+            position: relative;
+            width: 76px;
+            height: 76px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--bg-input);
+        }
+
+        .pending-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .pending-image button {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            cursor: pointer;
+        }
+
+        .message-images {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .message-images img {
+            max-width: min(100%, 360px);
+            max-height: 260px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .vision-recovery {
+            border: 1px solid rgba(241, 196, 15, 0.35);
+            border-radius: 10px;
+            padding: 14px;
+            background: rgba(241, 196, 15, 0.08);
+            color: var(--text-primary);
+        }
+
+        .vision-recovery button {
+            margin-top: 10px;
+            border: none;
+            border-radius: 8px;
+            padding: 9px 12px;
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .attach-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .attach-btn:hover {
+            color: var(--accent-hover);
+            border-color: var(--accent);
         }
 
         .chat-input {
@@ -1641,7 +1765,11 @@
             </div>
 
             <!-- Chat Pane -->
-            <div class="chat-pane">
+            <div class="chat-pane" id="chatPane"
+                 ondragenter="handleChatDragOver(event)"
+                 ondragover="handleChatDragOver(event)"
+                 ondragleave="handleChatDragLeave(event)"
+                 ondrop="handleChatDrop(event)">
                 <div class="pane-header">
                     <div class="active-model-indicator">
                         <div class="model-status-pill">
@@ -1678,7 +1806,12 @@
                 </div>
 
                 <div class="input-panel">
+                    <div class="pending-image-tray" id="pendingImageTray"></div>
                     <div class="input-wrapper">
+                        <input type="file" id="chatImageInput" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple hidden onchange="handleChatImageFiles(this.files); this.value = ''">
+                        <button class="attach-btn" type="button" onclick="document.getElementById('chatImageInput').click()" title="Attach image">
+                            <i class="fa-solid fa-paperclip"></i>
+                        </button>
                         <textarea class="chat-input" id="chatInput" 
                                   placeholder="Type a message..." rows="1"
                                   onkeydown="handleChatInputKey(event)"
@@ -1982,6 +2115,14 @@
                             <input type="text" class="control-input" id="param-override-kv" placeholder="Leave empty for auto/default">
                         </div>
 
+                        <div class="control-group">
+                            <div class="control-header">
+                                <span class="control-label">Vision Projector</span>
+                                <span class="control-sublabel">Sibling mmproj GGUF is detected automatically</span>
+                            </div>
+                            <input type="text" class="control-input" id="param-mmproj" placeholder="Optional path to mmproj GGUF">
+                        </div>
+
                         <!-- Chat Template -->
                         <div class="control-group">
                             <label class="control-label">Chat Template Override</label>
@@ -2261,6 +2402,12 @@
     let initialLaunchView = '{{ launch_view }}';
     let activeSettingsTab = 'info';
     window.backendGpuInfo = null;
+    const MAX_CHAT_IMAGES = 4;
+    const MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024;
+    const SUPPORTED_CHAT_IMAGE_TYPES = new Set([
+        'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp'
+    ]);
+    let pendingChatImages = [];
 
     async function fetchGpuInfo() {
         try {
@@ -2672,6 +2819,7 @@
 
         // Populate new load settings
         document.getElementById('param-override-kv').value = settings.override_kv || '';
+        document.getElementById('param-mmproj').value = settings.mmproj || model.mmproj_path || '';
         document.getElementById('param-chat-template').value = settings.chat_template || '';
         document.getElementById('param-custom-template').value = settings.custom_template || '';
         toggleCustomTemplateTextarea();
@@ -2758,6 +2906,7 @@
             
             // New Load Settings
             override_kv: document.getElementById('param-override-kv').value,
+            mmproj: document.getElementById('param-mmproj').value,
             chat_template: document.getElementById('param-chat-template').value,
             custom_template: document.getElementById('param-custom-template').value,
 
@@ -3022,6 +3171,50 @@
         }
     }
 
+    function formatResponseDuration(seconds) {
+        const value = Number(seconds);
+        if (!Number.isFinite(value) || value < 0) return '';
+        if (value < 1) return `${value.toFixed(2)}s`;
+        if (value < 60) return `${value.toFixed(1)}s`;
+        const minutes = Math.floor(value / 60);
+        const remainingSeconds = Math.round(value % 60).toString().padStart(2, '0');
+        return `${minutes}m ${remainingSeconds}s`;
+    }
+
+    function renderResponseMetrics(metrics) {
+        if (!metrics || typeof metrics !== 'object') return '';
+
+        const numeric = (key) => {
+            const value = Number(metrics[key]);
+            return Number.isFinite(value) && value >= 0 ? value : null;
+        };
+        const total = numeric('total_tokens');
+        const prompt = numeric('prompt_tokens');
+        const completion = numeric('completion_tokens');
+        const elapsed = numeric('elapsed_seconds');
+        const tokensPerSecond = numeric('tokens_per_second');
+        const parts = [];
+
+        if (total !== null) parts.push(`${Math.round(total)} tokens`);
+        if (prompt !== null && completion !== null) {
+            parts.push(`${Math.round(prompt)} in / ${Math.round(completion)} out`);
+        }
+        if (elapsed !== null) parts.push(formatResponseDuration(elapsed));
+        if (tokensPerSecond !== null) parts.push(`${tokensPerSecond.toFixed(1)} tok/s`);
+        if (parts.length === 0) return '';
+
+        const details = [];
+        const cached = numeric('cached_tokens');
+        const promptSeconds = numeric('prompt_seconds');
+        const generationSeconds = numeric('generation_seconds');
+        if (cached !== null) details.push(`${Math.round(cached)} cached prompt tokens`);
+        if (promptSeconds !== null) details.push(`${formatResponseDuration(promptSeconds)} prompt processing`);
+        if (generationSeconds !== null) details.push(`${formatResponseDuration(generationSeconds)} generation`);
+
+        const title = details.length > 0 ? ` title="${escapeHtml(details.join(' · '))}"` : '';
+        return `<div class="response-metrics"${title}>${parts.map((part, index) => `${index ? '<span class="metric-separator">·</span>' : ''}<span>${escapeHtml(part)}</span>`).join('')}</div>`;
+    }
+
     function renderStreamBlocks(container, blocks) {
         let html = '';
         for (const b of blocks) {
@@ -3038,6 +3231,10 @@
                 if (b.content) {
                     html += marked.parse(b.content);
                 }
+            } else if (b.type === 'vision_error') {
+                html += renderVisionRecovery(b.message, b.recovery);
+            } else if (b.type === 'metrics') {
+                html += renderResponseMetrics(b.metrics);
             } else if (b.type === 'tool') {
                 let statusIcon = 'fa-solid fa-circle-notch status-icon';
                 let statusClass = 'running';
@@ -3108,10 +3305,11 @@
             for (let i = 0; i < messages.length; i++) {
                 const msg = messages[i];
                 if (msg.role === 'user') {
+                    const userImages = renderChatImages(msg.images || []);
                     html += `
                         <div class="msg user">
                             <div class="msg-avatar">Y</div>
-                            <div class="msg-body">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+                            <div class="msg-body">${userImages}${escapeHtml(msg.content || '').replace(/\n/g, '<br>')}</div>
                         </div>
                     `;
                 } else if (msg.role === 'assistant') {
@@ -3138,7 +3336,9 @@
                         `;
                     }
                     
-                    if (textContent) {
+                    if (msg.vision_recovery) {
+                        assistantHtml += renderVisionRecovery(textContent, msg.vision_recovery);
+                    } else if (textContent) {
                         assistantHtml += marked.parse(textContent);
                     }
                     
@@ -3201,6 +3401,8 @@
                             `;
                         }
                     }
+
+                    assistantHtml += renderResponseMetrics(msg.metrics);
                     
                     html += `
                         <div class="msg assistant">
@@ -3221,11 +3423,55 @@
         refreshChatEmptyState();
     }
 
-    function createMessageHtmlSnippet(role, content) {
+    function isSafeChatImageDataUrl(dataUrl) {
+        return typeof dataUrl === 'string'
+            && /^data:image\/(?:png|jpeg|webp|gif|bmp);base64,[A-Za-z0-9+/=\r\n]+$/.test(dataUrl);
+    }
+
+    function renderChatImages(images) {
+        const safeImages = (images || []).filter(image => isSafeChatImageDataUrl(image.data_url));
+        if (safeImages.length === 0) return '';
+        return `
+            <div class="message-images">
+                ${safeImages.map(image => `<img src="${image.data_url}" alt="${escapeHtml(image.name || 'Attached image')}">`).join('')}
+            </div>
+        `;
+    }
+
+    function renderVisionRecovery(message, recovery) {
+        const recoveryData = recovery || {};
+        let action = '';
+        if (recoveryData.status === 'downloadable') {
+            const encodedRecovery = escapeHtml(JSON.stringify(recoveryData));
+            const sizeMb = recoveryData.size
+                ? ` (${Math.round(recoveryData.size / (1024 * 1024))} MB)`
+                : '';
+            action = `
+                <button type="button" data-recovery="${encodedRecovery}" onclick="downloadVisionProjectorFromButton(this)">
+                    <i class="fa-solid fa-download"></i>
+                    Download projector${sizeMb} and retry
+                </button>
+            `;
+        } else if (recoveryData.status === 'local') {
+            action = `
+                <button type="button" onclick="reloadCurrentModelForVision(true)">
+                    <i class="fa-solid fa-rotate"></i> Reload model and retry
+                </button>
+            `;
+        }
+        return `
+            <div class="vision-recovery">
+                <div><i class="fa-solid fa-eye-slash"></i> ${escapeHtml(message || 'Vision is not active for this model.')}</div>
+                ${action}
+            </div>
+        `;
+    }
+
+    function createMessageHtmlSnippet(role, content, images = []) {
         const avatar = role === 'user' ? 'Y' : 'AI';
         const parsedMarkdown = role === 'assistant' 
             ? marked.parse(content) 
-            : escapeHtml(content).replace(/\n/g, '<br>');
+            : `${renderChatImages(images)}${escapeHtml(content || '').replace(/\n/g, '<br>')}`;
 
         return `
             <div class="msg ${role}">
@@ -3300,6 +3546,85 @@
     }
 
     // ─── CHAT SENDING AND STREAMING ───────────────────────────
+    function handleChatDragOver(event) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        const pane = document.getElementById('chatPane');
+        if (pane) pane.classList.add('drag-active');
+    }
+
+    function handleChatDragLeave(event) {
+        const pane = document.getElementById('chatPane');
+        if (pane && (!event.relatedTarget || !pane.contains(event.relatedTarget))) {
+            pane.classList.remove('drag-active');
+        }
+    }
+
+    async function handleChatDrop(event) {
+        event.preventDefault();
+        const pane = document.getElementById('chatPane');
+        if (pane) pane.classList.remove('drag-active');
+        const files = event.dataTransfer ? event.dataTransfer.files : [];
+        await handleChatImageFiles(files);
+    }
+
+    function readChatImageFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({
+                name: file.name,
+                mime_type: file.type,
+                data_url: reader.result,
+                size: file.size
+            });
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function handleChatImageFiles(fileList) {
+        const files = Array.from(fileList || []);
+        for (const file of files) {
+            if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
+                showNotification('Image limit', `You can attach up to ${MAX_CHAT_IMAGES} images.`);
+                break;
+            }
+            if (!SUPPORTED_CHAT_IMAGE_TYPES.has(file.type)) {
+                showNotification('Unsupported image', `${file.name} is not a supported raster image.`);
+                continue;
+            }
+            if (file.size > MAX_CHAT_IMAGE_BYTES) {
+                showNotification('Image too large', `${file.name} exceeds the 10 MB limit.`);
+                continue;
+            }
+            try {
+                pendingChatImages.push(await readChatImageFile(file));
+            } catch (error) {
+                showNotification('Image read failed', error.message);
+            }
+        }
+        renderPendingChatImages();
+    }
+
+    function renderPendingChatImages() {
+        const tray = document.getElementById('pendingImageTray');
+        if (!tray) return;
+        tray.style.display = pendingChatImages.length > 0 ? 'flex' : 'none';
+        tray.innerHTML = pendingChatImages.map((image, index) => `
+            <div class="pending-image" title="${escapeHtml(image.name)}">
+                <img src="${image.data_url}" alt="${escapeHtml(image.name)}">
+                <button type="button" onclick="removePendingChatImage(${index})" aria-label="Remove ${escapeHtml(image.name)}">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    function removePendingChatImage(index) {
+        pendingChatImages.splice(index, 1);
+        renderPendingChatImages();
+    }
+
     function handleChatInputKey(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -3315,16 +3640,23 @@
     async function sendChatMessage() {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
-        if (!text || isCurrentlyStreaming || !isServerRunning) return;
+        const outgoingImages = pendingChatImages.slice();
+        if ((!text && outgoingImages.length === 0) || isCurrentlyStreaming || !isServerRunning) return;
+        const displayText = text || 'Describe this image.';
 
         input.value = '';
         input.style.height = 'auto';
+        pendingChatImages = [];
+        renderPendingChatImages();
 
         const welcome = document.getElementById('emptyWelcomeState');
         if (welcome) welcome.style.display = "none";
 
         const messagesList = document.getElementById('messagesList');
-        messagesList.insertAdjacentHTML('beforeend', createMessageHtmlSnippet('user', text));
+        messagesList.insertAdjacentHTML(
+            'beforeend',
+            createMessageHtmlSnippet('user', displayText, outgoingImages)
+        );
         messagesList.style.display = "flex";
 
         const assistDiv = document.createElement('div');
@@ -3351,7 +3683,8 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: text,
+                    message: displayText,
+                    images: outgoingImages,
                     system_prompt: document.getElementById('globalSystemPrompt').value,
                     temperature: parseFloat(document.getElementById('globalTemp').value),
                     top_p: parseFloat(document.getElementById('globalTopP').value),
@@ -3363,6 +3696,17 @@
                 }),
                 signal: activeAbortController.signal
             });
+
+            if (!res.ok) {
+                let detail = `Request failed with status ${res.status}`;
+                try {
+                    const errorBody = await res.json();
+                    detail = errorBody.detail || detail;
+                } catch (error) { }
+                pendingChatImages = outgoingImages.concat(pendingChatImages).slice(0, MAX_CHAT_IMAGES);
+                renderPendingChatImages();
+                throw new Error(detail);
+            }
 
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
@@ -3407,6 +3751,20 @@
                             } else {
                                 streamBlocks.push({ type: 'text', content: data.content });
                             }
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.type === 'vision_error') {
+                            streamBlocks.push({
+                                type: 'vision_error',
+                                message: data.message,
+                                recovery: data.recovery || null
+                            });
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.type === 'metrics' && data.metrics) {
+                            streamBlocks.push({ type: 'metrics', metrics: data.metrics });
                             renderStreamBlocks(assistDiv, streamBlocks);
                         }
 
@@ -3563,6 +3921,7 @@
     let activeDownloadRepo = null;
     let activeDownloadFile = null;
     let downloadEventSource = null;
+    let pendingProjectorReloadModel = null;
     window.selectedHfModelDetails = null;
 
     let hfSearchTimeout = null;
@@ -3856,6 +4215,72 @@
         }
     }
 
+    async function downloadVisionProjectorFromButton(button) {
+        let recovery;
+        try {
+            recovery = JSON.parse(button.dataset.recovery || '{}');
+        } catch (error) {
+            alert('Could not read the projector recovery details.');
+            return;
+        }
+        if (!recovery.repo_id || !recovery.filename || !recovery.model_path) {
+            alert('No matching downloadable projector was found for this model.');
+            return;
+        }
+
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Starting download...';
+        try {
+            const res = await fetch('/api/models/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    repo_id: recovery.repo_id,
+                    filename: recovery.filename,
+                    target_model_path: recovery.model_path
+                })
+            });
+            if (!res.ok) {
+                const errorBody = await res.json();
+                throw new Error(errorBody.detail || `Download failed with status ${res.status}`);
+            }
+            pendingProjectorReloadModel = recovery.model_path;
+            startProgressTracking(recovery.repo_id, recovery.filename);
+        } catch (error) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fa-solid fa-download"></i> Download projector and retry';
+            alert(`Could not start projector download: ${error.message}`);
+        }
+    }
+
+    async function reloadCurrentModelForVision(retryAfterReload = false) {
+        openOverlay('processLoaderOverlay');
+        const title = document.getElementById('loaderTitle');
+        const subtitle = document.getElementById('loaderSubtitle');
+        if (title) title.textContent = 'Enabling vision...';
+        if (subtitle) subtitle.textContent = 'Reloading the model with its projector.';
+        try {
+            const res = await fetch('/api/models/reload-current', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Model reload failed.');
+            await pollServerStatus();
+            if (!data.multimodal) {
+                throw new Error('The reloaded llama-server still does not report multimodal capability.');
+            }
+            showNotification('Vision enabled', 'The projector is loaded and the model is ready.');
+            if (retryAfterReload) {
+                const input = document.getElementById('chatInput');
+                input.value = 'Now answer the image I attached above.';
+                await sendChatMessage();
+            }
+        } catch (error) {
+            alert(`Could not enable vision: ${error.message}`);
+        } finally {
+            pendingProjectorReloadModel = null;
+            closeOverlay('processLoaderOverlay');
+        }
+    }
+
     function startProgressTracking(repo, file) {
         activeDownloadRepo = repo;
         activeDownloadFile = file;
@@ -3875,7 +4300,7 @@
 
         downloadEventSource = new EventSource('/api/models/download/progress');
         
-        downloadEventSource.onmessage = function(e) {
+        downloadEventSource.onmessage = async function(e) {
             try {
                 const data = JSON.parse(e.data);
                 
@@ -3910,7 +4335,10 @@
                         document.getElementById('downloadProgressCard').style.display = 'none';
                     }, 4000);
                     showNotification("Download Complete", `${file} downloaded successfully. Refreshing model catalog.`);
-                    rescanModels();
+                    await rescanModels();
+                    if (pendingProjectorReloadModel) {
+                        await reloadCurrentModelForVision(true);
+                    }
                 } else if (data.status === 'failed') {
                     downloadEventSource.close();
                     alert(`Download failed: ${data.error || 'unknown server issue'}`);

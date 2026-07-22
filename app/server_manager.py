@@ -118,6 +118,10 @@ class ServerManager:
             str(task_timeout),
         ]
 
+        mmproj = params.get("mmproj")
+        if mmproj:
+            cmd.extend(["--mmproj", str(mmproj)])
+
         # Handle flash-attn
         if flash_attn is True or flash_attn == "on":
             cmd.extend(["--flash-attn", "on"])
@@ -198,7 +202,17 @@ class ServerManager:
         """Load a model. If one is already loaded, eject it first."""
         model = model_path
         log_file = self._write_log()
-        params = params or {}
+        params = dict(params or {})
+
+        from .model_manager import find_mmproj
+
+        mmproj = str(params.get("mmproj") or find_mmproj(model) or "").strip()
+        if mmproj:
+            mmproj_path = Path(mmproj).expanduser().resolve()
+            if not mmproj_path.is_file():
+                logger.error("[server] Multimodal projector not found: %s", mmproj_path)
+                return False
+            params["mmproj"] = str(mmproj_path)
 
         # Determine initial cpu mode from params
         cpu_mode = params.get("cpu_mode", False) or int(params.get("gpu_layers", 999)) == 0
@@ -401,6 +415,30 @@ class ServerManager:
             except Exception as e:
                 status["health_error"] = str(e)
         return status
+
+    def supports_multimodal(self) -> bool:
+        """Check the active llama-server model capabilities."""
+        if not self.is_running:
+            return False
+        try:
+            import httpx
+
+            response = httpx.get(
+                f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/v1/models",
+                timeout=2,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            capabilities = set()
+            for model in payload.get("models", []):
+                capabilities.update(model.get("capabilities", []))
+            for model in payload.get("data", []):
+                capabilities.update(model.get("capabilities", []))
+            normalized = {str(capability).lower() for capability in capabilities}
+            return bool(normalized & {"multimodal", "vision"})
+        except Exception as exc:
+            logger.warning("[server] Could not inspect multimodal capability: %s", exc)
+            return False
 
 
 server = ServerManager()

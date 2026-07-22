@@ -4,6 +4,8 @@ Chat state management and llama.cpp API interaction.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import json
 import re
@@ -19,6 +21,144 @@ from .config import settings
 from .config_store import config_loader
 from .logger import logger
 
+MAX_IMAGES_PER_MESSAGE = 4
+MAX_TOOL_RESULT_CHARS = 8_000
+
+
+@dataclass(frozen=True)
+class ImageAttachment:
+    """Validated image content kept separate from tokenized message text."""
+
+    name: str
+    mime_type: str
+    data_url: str
+    size: int
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> ImageAttachment:
+        from .tools import MAX_IMAGE_BYTES, _detect_image_mime
+
+        if not isinstance(payload, dict):
+            raise ValueError("Each image attachment must be an object.")
+
+        data_url = payload.get("data_url")
+        if not isinstance(data_url, str):
+            raise ValueError("Image attachment is missing a data URL.")
+
+        match = re.fullmatch(
+            r"data:(image/(?:png|jpeg|webp|gif|bmp));base64,([A-Za-z0-9+/=\r\n]+)",
+            data_url,
+        )
+        if not match:
+            raise ValueError("Only base64 PNG, JPEG, WebP, GIF, and BMP images are supported.")
+
+        encoded = "".join(match.group(2).split())
+        max_encoded_size = ((MAX_IMAGE_BYTES + 2) // 3) * 4
+        if len(encoded) > max_encoded_size:
+            raise ValueError(f"Image attachments must be {MAX_IMAGE_BYTES} bytes or smaller.")
+
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("Image attachment contains invalid base64 data.") from exc
+
+        if len(image_bytes) > MAX_IMAGE_BYTES:
+            raise ValueError(f"Image attachments must be {MAX_IMAGE_BYTES} bytes or smaller.")
+
+        detected_mime = _detect_image_mime(image_bytes[:16])
+        claimed_mime = match.group(1)
+        if detected_mime is None or detected_mime != claimed_mime:
+            raise ValueError("Image content does not match its declared raster format.")
+
+        raw_name = payload.get("name")
+        name = str(raw_name).replace("\\", "/").rsplit("/", 1)[-1] if raw_name else "image"
+        name = name[:255] or "image"
+        canonical_data_url = f"data:{detected_mime};base64,{encoded}"
+        return cls(
+            name=name,
+            mime_type=detected_mime,
+            data_url=canonical_data_url,
+            size=len(image_bytes),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "mime_type": self.mime_type,
+            "data_url": self.data_url,
+            "size": self.size,
+        }
+
+
+def validate_image_attachments(payloads: list[dict] | None) -> list[ImageAttachment]:
+    """Validate browser/tool image payloads before they enter conversation history."""
+    if not payloads:
+        return []
+    if not isinstance(payloads, list):
+        raise ValueError("Images must be provided as a list.")
+    if len(payloads) > MAX_IMAGES_PER_MESSAGE:
+        raise ValueError(f"A message can include at most {MAX_IMAGES_PER_MESSAGE} images.")
+    return [ImageAttachment.from_payload(payload) for payload in payloads]
+
+
+def _bounded_tool_result(content: str) -> str:
+    """Keep text tool output from consuming an entire model context window."""
+    if len(content) <= MAX_TOOL_RESULT_CHARS:
+        return content
+    omitted = len(content) - MAX_TOOL_RESULT_CHARS
+    return (
+        f"{content[:MAX_TOOL_RESULT_CHARS]}\n\n"
+        f"[Tool output truncated: {omitted} additional characters omitted.]"
+    )
+
+
+def _response_metrics(usage: dict, timings: dict, elapsed_seconds: float) -> dict:
+    """Normalize llama.cpp usage and timing fields for storage and display."""
+
+    def nonnegative_int(value) -> int | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return None
+        return int(value)
+
+    def nonnegative_float(value) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return None
+        return round(float(value), 3)
+
+    prompt_tokens = nonnegative_int(usage.get("prompt_tokens"))
+    completion_tokens = nonnegative_int(usage.get("completion_tokens"))
+    total_tokens = nonnegative_int(usage.get("total_tokens"))
+    cached_tokens = nonnegative_int((usage.get("prompt_tokens_details") or {}).get("cached_tokens"))
+
+    if prompt_tokens is None:
+        prompt_n = nonnegative_int(timings.get("prompt_n"))
+        cache_n = nonnegative_int(timings.get("cache_n"))
+        if prompt_n is not None or cache_n is not None:
+            prompt_tokens = (prompt_n or 0) + (cache_n or 0)
+    if completion_tokens is None:
+        completion_tokens = nonnegative_int(timings.get("predicted_n"))
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    if cached_tokens is None:
+        cached_tokens = nonnegative_int(timings.get("cache_n"))
+
+    metrics = {"elapsed_seconds": round(max(0.0, elapsed_seconds), 3)}
+    optional_values = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
+        "prompt_seconds": nonnegative_float(timings.get("prompt_ms")),
+        "generation_seconds": nonnegative_float(timings.get("predicted_ms")),
+        "tokens_per_second": nonnegative_float(timings.get("predicted_per_second")),
+    }
+    for key, value in optional_values.items():
+        if value is not None:
+            if key.endswith("_seconds") and key != "elapsed_seconds":
+                value = round(value / 1000, 3)
+            metrics[key] = value
+    return metrics
+
 
 @dataclass
 class Message:
@@ -29,6 +169,9 @@ class Message:
     tool_calls: list[dict] | None = None
     tool_call_id: str | None = None
     name: str | None = None
+    images: list[ImageAttachment] = field(default_factory=list)
+    vision_recovery: dict | None = None
+    metrics: dict | None = None
 
 
 @dataclass
@@ -70,6 +213,9 @@ class ChatManager:
                                 tool_calls=m.get("tool_calls"),
                                 tool_call_id=m.get("tool_call_id"),
                                 name=m.get("name"),
+                                images=validate_image_attachments(m.get("images")),
+                                vision_recovery=m.get("vision_recovery"),
+                                metrics=m.get("metrics"),
                             )
                             for m in c_data.get("messages", [])
                         ]
@@ -109,6 +255,9 @@ class ChatManager:
                                 "tool_calls": m.tool_calls,
                                 "tool_call_id": m.tool_call_id,
                                 "name": m.name,
+                                "images": [image.to_dict() for image in m.images],
+                                "vision_recovery": m.vision_recovery,
+                                "metrics": m.metrics,
                             }
                             for m in conv.messages
                         ],
@@ -155,7 +304,7 @@ class ChatManager:
             if title == "New Chat":
                 for msg in conv.messages:
                     if msg.role == "user":
-                        title = msg.content[:50]
+                        title = (msg.content or "Image message")[:50]
                         break
             result.append({
                 "id": conv.id,
@@ -189,6 +338,9 @@ class ChatManager:
         min_p: float | None = None,
         repeat_penalty: float | None = None,
         stop: list[str] | None = None,
+        images: list[ImageAttachment] | None = None,
+        vision_recovery: dict | None = None,
+        enable_thinking: bool | None = None,
     ) -> Generator[str, None, None]:
         """Send a message to llama-server and stream the response, automatically executing tools if requested."""
         from .tools import ALL_TOOLS, execute_tool
@@ -200,7 +352,9 @@ class ChatManager:
 
         # Add user message if provided
         if user_message is not None:
-            conv.messages.append(Message(role="user", content=user_message))
+            conv.messages.append(
+                Message(role="user", content=user_message, images=list(images or []))
+            )
             self._save_to_disk()
 
         chat_defaults = config_loader.get_chat_defaults()
@@ -210,11 +364,60 @@ class ChatManager:
             iteration += 1
             # Build message history for the API
             messages = []
+            has_conversation_images = any(msg.images for msg in conv.messages)
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+            if has_conversation_images:
+                image_instruction = (
+                    "Images in this conversation are already attached as multimodal input. "
+                    "Analyze them directly; do not call read_file for an attached image unless "
+                    "the user explicitly asks you to read a separate workspace path."
+                )
+                if messages and messages[0]["role"] == "system":
+                    messages[0]["content"] = f"{messages[0]['content']}\n\n{image_instruction}"
+                else:
+                    messages.append({"role": "system", "content": image_instruction})
 
+            pending_tool_images: list[ImageAttachment] = []
+            pending_tool_names: list[str] = []
             for msg in conv.messages:
-                msg_dict = {"role": msg.role, "content": msg.content}
+                if msg.role != "tool" and pending_tool_images:
+                    image_parts = [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Image returned by tool execution: {', '.join(pending_tool_names)}"
+                            ),
+                        }
+                    ]
+                    image_parts.extend(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image.data_url},
+                        }
+                        for image in pending_tool_images
+                    )
+                    messages.append({"role": "user", "content": image_parts})
+                    pending_tool_images = []
+                    pending_tool_names = []
+
+                message_content = msg.content
+                if msg.role == "tool" and message_content:
+                    message_content = _bounded_tool_result(message_content)
+
+                msg_dict = {"role": msg.role, "content": message_content}
+                if msg.images and msg.role != "tool":
+                    content_parts = []
+                    if message_content:
+                        content_parts.append({"type": "text", "text": message_content})
+                    content_parts.extend(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image.data_url},
+                        }
+                        for image in msg.images
+                    )
+                    msg_dict["content"] = content_parts
                 if msg.tool_calls:
                     # Parse tool call arguments to dictionary to avoid double-escaping in llama.cpp templates
                     parsed_tool_calls = []
@@ -237,11 +440,64 @@ class ChatManager:
                 if msg.name:
                     msg_dict["name"] = msg.name
                 messages.append(msg_dict)
+                if msg.images and msg.role == "tool":
+                    pending_tool_images.extend(msg.images)
+                    pending_tool_names.append(msg.name or "file")
+
+            if pending_tool_images:
+                image_parts = [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Image returned by tool execution: {', '.join(pending_tool_names)}"
+                        ),
+                    }
+                ]
+                image_parts.extend(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image.data_url},
+                    }
+                    for image in pending_tool_images
+                )
+                messages.append({"role": "user", "content": image_parts})
+
+            if has_conversation_images:
+                from .server_manager import server
+
+                if not server.supports_multimodal():
+                    if vision_recovery and vision_recovery.get("status") == "downloadable":
+                        message = (
+                            "This model's vision projector is missing. Download it and reload "
+                            "the model to enable image input."
+                        )
+                    elif vision_recovery and vision_recovery.get("status") == "local":
+                        message = (
+                            "A vision projector is available locally but is not active. Reload "
+                            "the model to enable image input."
+                        )
+                    else:
+                        message = (
+                            "The loaded llama-server does not report multimodal capability, "
+                            "and no matching vision projector was found."
+                        )
+                    conv.messages.append(
+                        Message(
+                            role="assistant",
+                            content=message,
+                            vision_recovery=vision_recovery,
+                        )
+                    )
+                    self._save_to_disk()
+                    yield f"data: {json.dumps({'type': 'vision_error', 'message': message, 'recovery': vision_recovery})}\n\n"
+                    yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                    break
 
             # Build the completion payload for llama.cpp server
             payload = {
                 "messages": messages,
                 "stream": True,
+                "stream_options": {"include_usage": True},
                 "temperature": temperature
                 if temperature is not None
                 else chat_defaults["temperature"],
@@ -258,10 +514,15 @@ class ChatManager:
                 payload["repeat_penalty"] = repeat_penalty
             if stop:
                 payload["stop"] = stop
+            if enable_thinking is not None:
+                payload["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
 
             assistant_text = ""
             reasoning_text = ""
             tool_calls_accumulated = []
+            response_usage = {}
+            response_timings = {}
+            request_started = time.perf_counter()
 
             try:
                 timeout = httpx.Timeout(
@@ -290,6 +551,10 @@ class ChatManager:
                                 break
                             try:
                                 data = json.loads(data_str)
+                                if isinstance(data.get("usage"), dict):
+                                    response_usage = data["usage"]
+                                if isinstance(data.get("timings"), dict):
+                                    response_timings = data["timings"]
                                 if data.get("choices"):
                                     delta = data["choices"][0].get("delta", {})
 
@@ -330,6 +595,12 @@ class ChatManager:
 
                             except json.JSONDecodeError:
                                 continue
+
+                response_metrics = _response_metrics(
+                    response_usage,
+                    response_timings,
+                    time.perf_counter() - request_started,
+                )
 
                 # Check for custom text-based tool calls in the generated content (e.g. Gemma inline tool calls)
                 if not tool_calls_accumulated and assistant_text:
@@ -466,9 +737,11 @@ class ChatManager:
                             content=assistant_text or None,
                             reasoning=reasoning_text or None,
                             tool_calls=cleaned_tcs,
+                            metrics=response_metrics,
                         )
                     )
                     self._save_to_disk()
+                    yield f"data: {json.dumps({'type': 'metrics', 'metrics': response_metrics})}\n\n"
 
                     # Execute tools sequentially
                     for tc in cleaned_tcs:
@@ -487,14 +760,26 @@ class ChatManager:
 
                         # Execute the tool
                         logger.info(f"Executing tool '{name}' with arguments: {args}")
-                        result = execute_tool(name, args)
+                        tool_result = execute_tool(name, args)
+                        result_images = []
+                        if isinstance(tool_result, str):
+                            result = _bounded_tool_result(tool_result)
+                        else:
+                            result = _bounded_tool_result(tool_result.content)
+                            result_images = validate_image_attachments(tool_result.images)
 
                         # Notify frontend that tool execution finished
                         yield f"data: {json.dumps({'type': 'tool_exec_end', 'id': tc_id, 'name': name, 'result': result})}\n\n"
 
                         # Save the tool output message in conversation
                         conv.messages.append(
-                            Message(role="tool", content=result, tool_call_id=tc_id, name=name)
+                            Message(
+                                role="tool",
+                                content=result,
+                                tool_call_id=tc_id,
+                                name=name,
+                                images=result_images,
+                            )
                         )
                         self._save_to_disk()
 
@@ -523,9 +808,11 @@ class ChatManager:
                             role="assistant",
                             content=assistant_text or None,
                             reasoning=reasoning_text or None,
+                            metrics=response_metrics,
                         )
                     )
                     self._save_to_disk()
+                    yield f"data: {json.dumps({'type': 'metrics', 'metrics': response_metrics})}\n\n"
 
                     # Send end marker and break
                     yield f"data: {json.dumps({'type': 'end'})}\n\n"

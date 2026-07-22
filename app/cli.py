@@ -482,6 +482,17 @@ def load(model, reload, **kwargs):
 @click.option("--temperature", type=float, help="Override inference temperature")
 @click.option("--top-p", type=float, help="Override Nucleus Sampling top_p")
 @click.option("--max-tokens", type=int, help="Override maximum tokens output constraint")
+@click.option(
+    "--thinking/--no-thinking",
+    default=None,
+    help="Enable or disable model reasoning for this request without reloading the model",
+)
+@click.option(
+    "--image",
+    "image_paths",
+    multiple=True,
+    help="Workspace image path to attach; may be provided more than once",
+)
 def oneshot(prompt, model, **kwargs):
     """Execute a single testing query against a model, showing real-time reasoning and tool outputs."""
     # 1. Load model if specified
@@ -516,12 +527,26 @@ def oneshot(prompt, model, **kwargs):
         console.print(f"[bold red]Failed to contact LlamaStudio server: {e}[/bold red]")
         return
 
+    image_payloads = []
+    if kwargs.get("image_paths"):
+        from app.tools import ToolResult, read_file
+
+        for image_path in kwargs["image_paths"]:
+            result = read_file(image_path)
+            if not isinstance(result, ToolResult) or not result.images:
+                detail = result if isinstance(result, str) else "Unsupported image."
+                console.print(f"[bold red]Could not attach '{image_path}': {detail}[/bold red]")
+                return
+            image_payloads.extend(result.images)
+
     # Start a fresh conversation to avoid history pollution across sequential oneshot runs
     with contextlib.suppress(Exception):
         httpx.post(f"{API_BASE_URL}/api/chat/new")
 
     # 3. Construct chat payload
     payload = {"message": prompt}
+    if image_payloads:
+        payload["images"] = image_payloads
     if kwargs.get("system_prompt") is not None:
         payload["system_prompt"] = kwargs["system_prompt"]
     if kwargs.get("temperature") is not None:
@@ -530,6 +555,8 @@ def oneshot(prompt, model, **kwargs):
         payload["top_p"] = kwargs["top_p"]
     if kwargs.get("max_tokens") is not None:
         payload["max_tokens"] = kwargs["max_tokens"]
+    if kwargs.get("thinking") is not None:
+        payload["enable_thinking"] = kwargs["thinking"]
 
     # 4. Stream chat completions using httpx
     console.print(
@@ -564,6 +591,38 @@ def oneshot(prompt, model, **kwargs):
                         break
 
                     if data.get("type") == "start":
+                        continue
+
+                    if data.get("type") == "metrics":
+                        metrics = data.get("metrics") or {}
+                        total = metrics.get("total_tokens")
+                        prompt_tokens = metrics.get("prompt_tokens")
+                        completion_tokens = metrics.get("completion_tokens")
+                        elapsed = metrics.get("elapsed_seconds")
+                        tokens_per_second = metrics.get("tokens_per_second")
+                        parts = []
+                        if total is not None:
+                            parts.append(f"{total} tokens")
+                        if prompt_tokens is not None and completion_tokens is not None:
+                            parts.append(f"{prompt_tokens} in / {completion_tokens} out")
+                        if elapsed is not None:
+                            parts.append(f"{elapsed:.2f}s")
+                        if tokens_per_second is not None:
+                            parts.append(f"{tokens_per_second:.1f} tok/s")
+                        if parts:
+                            if in_reasoning:
+                                in_reasoning = False
+                                console.print("\n")
+                            console.print(f"\n[dim]{' · '.join(parts)}[/dim]")
+                        continue
+
+                    if data.get("type") == "vision_error":
+                        console.print(f"\n[bold red]Vision Error: {data.get('message')}[/bold red]")
+                        recovery = data.get("recovery") or {}
+                        if recovery.get("status") == "downloadable":
+                            console.print(
+                                f"[yellow]Matching projector: {recovery.get('filename')}[/yellow]"
+                            )
                         continue
 
                     # Handle DeepSeek Chain-of-Thought reasoning
