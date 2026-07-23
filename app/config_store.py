@@ -86,6 +86,14 @@ class ConfigLoader:
     def get_chat_defaults(self) -> dict[str, Any]:
         return deepcopy(self.load_app_config()["defaults"]["chat"])
 
+    def get_speech_config(self) -> dict[str, Any]:
+        return deepcopy(self.load_app_config()["speech"])
+
+    def save_speech_config(self, speech_config: dict[str, Any]) -> None:
+        config = self.load_app_config()
+        config["speech"] = deepcopy(speech_config)
+        self.save_app_config(config)
+
     def get_launch_view(
         self,
         *,
@@ -248,6 +256,13 @@ class ConfigLoader:
             "models": {
                 "directories": list(settings.MODEL_DIRS),
                 "last_loaded": "",
+            },
+            "speech": {
+                "engine": "whisper.cpp",
+                "install_dir": settings.SPEECH_DIR,
+                "model": settings.SPEECH_DEFAULT_MODEL,
+                "language": "auto",
+                "use_gpu": False,
             },
             "defaults": {
                 "llama": {

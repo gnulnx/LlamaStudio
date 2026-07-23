@@ -22,6 +22,7 @@ from .config_store import config_loader
 from .logger import logger
 
 MAX_IMAGES_PER_MESSAGE = 4
+MAX_AUDIO_FILES_PER_MESSAGE = 1
 MAX_TOOL_RESULT_CHARS = 8_000
 
 
@@ -101,6 +102,127 @@ def validate_image_attachments(payloads: list[dict] | None) -> list[ImageAttachm
     return [ImageAttachment.from_payload(payload) for payload in payloads]
 
 
+@dataclass(frozen=True)
+class AudioAttachment:
+    """Validated audio content prepared for llama.cpp input_audio."""
+
+    name: str
+    mime_type: str
+    data_url: str
+    size: int
+    format: str
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> AudioAttachment:
+        from .tools import (
+            MAX_AUDIO_BYTES,
+            _detect_audio_mime,
+            prepare_audio_for_model,
+        )
+
+        if not isinstance(payload, dict):
+            raise ValueError("Each audio attachment must be an object.")
+
+        data_url = payload.get("data_url")
+        if not isinstance(data_url, str):
+            raise ValueError("Audio attachment is missing a data URL.")
+
+        match = re.fullmatch(
+            r"data:(audio/(?:wav|x-wav|mpeg|mp3|flac|x-flac));base64,"
+            r"([A-Za-z0-9+/=\r\n]+)",
+            data_url,
+        )
+        if not match:
+            raise ValueError("Only base64 WAV, MP3, and FLAC audio files are supported.")
+
+        encoded = "".join(match.group(2).split())
+        max_encoded_size = ((MAX_AUDIO_BYTES + 2) // 3) * 4
+        if len(encoded) > max_encoded_size:
+            raise ValueError(f"Audio attachments must be {MAX_AUDIO_BYTES} bytes or smaller.")
+
+        try:
+            audio_bytes = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("Audio attachment contains invalid base64 data.") from exc
+
+        if len(audio_bytes) > MAX_AUDIO_BYTES:
+            raise ValueError(f"Audio attachments must be {MAX_AUDIO_BYTES} bytes or smaller.")
+
+        detected_mime = _detect_audio_mime(audio_bytes[:16])
+        claimed_mime = match.group(1)
+        equivalent_mimes = {
+            "audio/wav": {"audio/wav", "audio/x-wav"},
+            "audio/mpeg": {"audio/mpeg", "audio/mp3"},
+            "audio/flac": {"audio/flac", "audio/x-flac"},
+        }
+        if detected_mime is None or claimed_mime not in equivalent_mimes[detected_mime]:
+            raise ValueError("Audio content does not match its declared format.")
+
+        prepared_bytes, prepared_mime, prepared_format = prepare_audio_for_model(
+            audio_bytes, detected_mime
+        )
+        prepared_encoded = base64.b64encode(prepared_bytes).decode("ascii")
+        raw_name = payload.get("name")
+        name = str(raw_name).replace("\\", "/").rsplit("/", 1)[-1] if raw_name else "audio"
+        name = name[:255] or "audio"
+        return cls(
+            name=name,
+            mime_type=prepared_mime,
+            data_url=f"data:{prepared_mime};base64,{prepared_encoded}",
+            size=len(prepared_bytes),
+            format=prepared_format,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "mime_type": self.mime_type,
+            "data_url": self.data_url,
+            "size": self.size,
+            "format": self.format,
+        }
+
+    def to_content_part(self) -> dict:
+        return {
+            "type": "input_audio",
+            "input_audio": {
+                "data": self.data_url.split(",", 1)[1],
+                "format": self.format,
+            },
+        }
+
+
+def validate_audio_attachments(payloads: list[dict] | None) -> list[AudioAttachment]:
+    """Validate and normalize browser/tool audio payloads before storing them."""
+    if not payloads:
+        return []
+    if not isinstance(payloads, list):
+        raise ValueError("Audio files must be provided as a list.")
+    if len(payloads) > MAX_AUDIO_FILES_PER_MESSAGE:
+        raise ValueError(f"A message can include at most {MAX_AUDIO_FILES_PER_MESSAGE} audio file.")
+    return [AudioAttachment.from_payload(payload) for payload in payloads]
+
+
+def _media_content_parts(
+    text: str | None,
+    images: list[ImageAttachment],
+    audios: list[AudioAttachment],
+) -> list[dict]:
+    """Build OpenAI-compatible typed content without tokenizing binary media."""
+    parts = []
+    parts.extend(audio.to_content_part() for audio in audios)
+    if text:
+        parts.append({"type": "text", "text": text})
+    parts.extend(
+        {
+            "type": "image_url",
+            "image_url": {"url": image.data_url},
+        }
+        for image in images
+    )
+    return parts
+
+
 def _bounded_tool_result(content: str) -> str:
     """Keep text tool output from consuming an entire model context window."""
     if len(content) <= MAX_TOOL_RESULT_CHARS:
@@ -170,6 +292,7 @@ class Message:
     tool_call_id: str | None = None
     name: str | None = None
     images: list[ImageAttachment] = field(default_factory=list)
+    audios: list[AudioAttachment] = field(default_factory=list)
     vision_recovery: dict | None = None
     metrics: dict | None = None
 
@@ -214,6 +337,7 @@ class ChatManager:
                                 tool_call_id=m.get("tool_call_id"),
                                 name=m.get("name"),
                                 images=validate_image_attachments(m.get("images")),
+                                audios=validate_audio_attachments(m.get("audios")),
                                 vision_recovery=m.get("vision_recovery"),
                                 metrics=m.get("metrics"),
                             )
@@ -256,6 +380,7 @@ class ChatManager:
                                 "tool_call_id": m.tool_call_id,
                                 "name": m.name,
                                 "images": [image.to_dict() for image in m.images],
+                                "audios": [audio.to_dict() for audio in m.audios],
                                 "vision_recovery": m.vision_recovery,
                                 "metrics": m.metrics,
                             }
@@ -339,6 +464,7 @@ class ChatManager:
         repeat_penalty: float | None = None,
         stop: list[str] | None = None,
         images: list[ImageAttachment] | None = None,
+        audios: list[AudioAttachment] | None = None,
         vision_recovery: dict | None = None,
         enable_thinking: bool | None = None,
     ) -> Generator[str, None, None]:
@@ -353,7 +479,12 @@ class ChatManager:
         # Add user message if provided
         if user_message is not None:
             conv.messages.append(
-                Message(role="user", content=user_message, images=list(images or []))
+                Message(
+                    role="user",
+                    content=user_message,
+                    images=list(images or []),
+                    audios=list(audios or []),
+                )
             )
             self._save_to_disk()
 
@@ -365,40 +496,33 @@ class ChatManager:
             # Build message history for the API
             messages = []
             has_conversation_images = any(msg.images for msg in conv.messages)
+            has_conversation_audio = any(msg.audios for msg in conv.messages)
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
-            if has_conversation_images:
-                image_instruction = (
-                    "Images in this conversation are already attached as multimodal input. "
-                    "Analyze them directly; do not call read_file for an attached image unless "
-                    "the user explicitly asks you to read a separate workspace path."
+            if has_conversation_images or has_conversation_audio:
+                media_instruction = (
+                    "Media in this conversation is already attached as multimodal input. "
+                    "Analyze it directly; do not call read_file for an attached image or audio "
+                    "file unless the user explicitly asks you to read a separate workspace path."
                 )
                 if messages and messages[0]["role"] == "system":
-                    messages[0]["content"] = f"{messages[0]['content']}\n\n{image_instruction}"
+                    messages[0]["content"] = f"{messages[0]['content']}\n\n{media_instruction}"
                 else:
-                    messages.append({"role": "system", "content": image_instruction})
+                    messages.append({"role": "system", "content": media_instruction})
 
             pending_tool_images: list[ImageAttachment] = []
+            pending_tool_audios: list[AudioAttachment] = []
             pending_tool_names: list[str] = []
             for msg in conv.messages:
-                if msg.role != "tool" and pending_tool_images:
-                    image_parts = [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"Image returned by tool execution: {', '.join(pending_tool_names)}"
-                            ),
-                        }
-                    ]
-                    image_parts.extend(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image.data_url},
-                        }
-                        for image in pending_tool_images
+                if msg.role != "tool" and (pending_tool_images or pending_tool_audios):
+                    media_parts = _media_content_parts(
+                        f"Media returned by tool execution: {', '.join(pending_tool_names)}",
+                        pending_tool_images,
+                        pending_tool_audios,
                     )
-                    messages.append({"role": "user", "content": image_parts})
+                    messages.append({"role": "user", "content": media_parts})
                     pending_tool_images = []
+                    pending_tool_audios = []
                     pending_tool_names = []
 
                 message_content = msg.content
@@ -406,18 +530,12 @@ class ChatManager:
                     message_content = _bounded_tool_result(message_content)
 
                 msg_dict = {"role": msg.role, "content": message_content}
-                if msg.images and msg.role != "tool":
-                    content_parts = []
-                    if message_content:
-                        content_parts.append({"type": "text", "text": message_content})
-                    content_parts.extend(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image.data_url},
-                        }
-                        for image in msg.images
+                if (msg.images or msg.audios) and msg.role != "tool":
+                    msg_dict["content"] = _media_content_parts(
+                        message_content,
+                        msg.images,
+                        msg.audios,
                     )
-                    msg_dict["content"] = content_parts
                 if msg.tool_calls:
                     # Parse tool call arguments to dictionary to avoid double-escaping in llama.cpp templates
                     parsed_tool_calls = []
@@ -440,27 +558,18 @@ class ChatManager:
                 if msg.name:
                     msg_dict["name"] = msg.name
                 messages.append(msg_dict)
-                if msg.images and msg.role == "tool":
+                if (msg.images or msg.audios) and msg.role == "tool":
                     pending_tool_images.extend(msg.images)
+                    pending_tool_audios.extend(msg.audios)
                     pending_tool_names.append(msg.name or "file")
 
-            if pending_tool_images:
-                image_parts = [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"Image returned by tool execution: {', '.join(pending_tool_names)}"
-                        ),
-                    }
-                ]
-                image_parts.extend(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image.data_url},
-                    }
-                    for image in pending_tool_images
+            if pending_tool_images or pending_tool_audios:
+                media_parts = _media_content_parts(
+                    f"Media returned by tool execution: {', '.join(pending_tool_names)}",
+                    pending_tool_images,
+                    pending_tool_audios,
                 )
-                messages.append({"role": "user", "content": image_parts})
+                messages.append({"role": "user", "content": media_parts})
 
             if has_conversation_images:
                 from .server_manager import server
@@ -493,6 +602,20 @@ class ChatManager:
                     yield f"data: {json.dumps({'type': 'end'})}\n\n"
                     break
 
+            if has_conversation_audio:
+                from .server_manager import server
+
+                if not server.supports_audio():
+                    message = (
+                        "The loaded llama-server model does not report audio input capability. "
+                        "Load an audio-capable model and its multimodal projector."
+                    )
+                    conv.messages.append(Message(role="assistant", content=message))
+                    self._save_to_disk()
+                    yield (f"data: {json.dumps({'type': 'audio_error', 'message': message})}\n\n")
+                    yield f"data: {json.dumps({'type': 'end'})}\n\n"
+                    break
+
             # Build the completion payload for llama.cpp server
             payload = {
                 "messages": messages,
@@ -503,9 +626,11 @@ class ChatManager:
                 else chat_defaults["temperature"],
                 "top_p": top_p if top_p is not None else chat_defaults["top_p"],
                 "max_tokens": max_tokens if max_tokens is not None else chat_defaults["max_tokens"],
-                "tools": ALL_TOOLS,
-                "tool_choice": "auto",
             }
+            responding_to_audio = bool(conv.messages and conv.messages[-1].audios)
+            if not responding_to_audio:
+                payload["tools"] = ALL_TOOLS
+                payload["tool_choice"] = "auto"
             if top_k is not None:
                 payload["top_k"] = top_k
             if min_p is not None:
@@ -762,11 +887,13 @@ class ChatManager:
                         logger.info(f"Executing tool '{name}' with arguments: {args}")
                         tool_result = execute_tool(name, args)
                         result_images = []
+                        result_audios = []
                         if isinstance(tool_result, str):
                             result = _bounded_tool_result(tool_result)
                         else:
                             result = _bounded_tool_result(tool_result.content)
                             result_images = validate_image_attachments(tool_result.images)
+                            result_audios = validate_audio_attachments(tool_result.audios)
 
                         # Notify frontend that tool execution finished
                         yield f"data: {json.dumps({'type': 'tool_exec_end', 'id': tc_id, 'name': name, 'result': result})}\n\n"
@@ -779,6 +906,7 @@ class ChatManager:
                                 tool_call_id=tc_id,
                                 name=name,
                                 images=result_images,
+                                audios=result_audios,
                             )
                         )
                         self._save_to_disk()

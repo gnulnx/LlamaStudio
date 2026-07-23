@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     LLAMA_SERVER_OVERRIDE_KV: str = ""
     LLAMA_SERVER_TASK_TIMEOUT: int = 900
 
+    # Local speech-to-text settings
+    SPEECH_SERVER_PORT: int = 8082
+    SPEECH_DIR: str = str(Path.home() / ".config" / "llamastudio" / "speech")
+    SPEECH_DEFAULT_MODEL: str = "small.en"
+    SPEECH_MAX_AUDIO_BYTES: int = 100 * 1024 * 1024
+
     # Default fallback model path (unused, starts clean without loaded model)
     DEFAULT_MODEL: str = ""
 

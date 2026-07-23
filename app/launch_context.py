@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import socket
 import sys
 
 ANY_HOSTS = {"0.0.0.0", "::", ""}
@@ -20,7 +19,9 @@ def browser_host(bind_host: str) -> str:
     if configured:
         return configured
     if bind_host in ANY_HOSTS:
-        return socket.getfqdn() or socket.gethostname() or "127.0.0.1"
+        # Browsers only expose microphone APIs to secure contexts. Loopback HTTP
+        # is trusted; an arbitrary LAN hostname over HTTP is not.
+        return "127.0.0.1"
     return bind_host
 
 

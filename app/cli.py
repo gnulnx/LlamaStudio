@@ -1,8 +1,10 @@
 import contextlib
 import json
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import webbrowser
 from pathlib import Path
@@ -11,7 +13,7 @@ import httpx
 import rich_click as click
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 # Configure rich-click visual styling to match a premium terminal theme
@@ -102,6 +104,20 @@ def start_server_background() -> bool:
         else:
             progress.update(task, description="[red]API server failed to start within timeout.")
             return False
+
+
+def ensure_server_online() -> bool:
+    """Ensure the desktop API is available for a CLI operation."""
+    return is_server_online() or start_server_background()
+
+
+def response_error(response: httpx.Response) -> str:
+    """Extract a useful FastAPI error from an HTTP response."""
+    try:
+        payload = response.json()
+        return str(payload.get("detail") or payload)
+    except ValueError:
+        return response.text or f"HTTP {response.status_code}"
 
 
 def load_saved_model_settings(model_path: str) -> dict:
@@ -493,6 +509,11 @@ def load(model, reload, **kwargs):
     multiple=True,
     help="Workspace image path to attach; may be provided more than once",
 )
+@click.option(
+    "--audio",
+    "audio_path",
+    help="Workspace WAV, MP3, or FLAC path to attach as model audio input",
+)
 def oneshot(prompt, model, **kwargs):
     """Execute a single testing query against a model, showing real-time reasoning and tool outputs."""
     # 1. Load model if specified
@@ -539,6 +560,18 @@ def oneshot(prompt, model, **kwargs):
                 return
             image_payloads.extend(result.images)
 
+    audio_payloads = []
+    if kwargs.get("audio_path"):
+        from app.tools import ToolResult, read_file
+
+        audio_path = kwargs["audio_path"]
+        result = read_file(audio_path)
+        if not isinstance(result, ToolResult) or not result.audios:
+            detail = result if isinstance(result, str) else "Unsupported audio."
+            console.print(f"[bold red]Could not attach '{audio_path}': {detail}[/bold red]")
+            return
+        audio_payloads.extend(result.audios)
+
     # Start a fresh conversation to avoid history pollution across sequential oneshot runs
     with contextlib.suppress(Exception):
         httpx.post(f"{API_BASE_URL}/api/chat/new")
@@ -547,6 +580,8 @@ def oneshot(prompt, model, **kwargs):
     payload = {"message": prompt}
     if image_payloads:
         payload["images"] = image_payloads
+    if audio_payloads:
+        payload["audios"] = audio_payloads
     if kwargs.get("system_prompt") is not None:
         payload["system_prompt"] = kwargs["system_prompt"]
     if kwargs.get("temperature") is not None:
@@ -625,6 +660,10 @@ def oneshot(prompt, model, **kwargs):
                             )
                         continue
 
+                    if data.get("type") == "audio_error":
+                        console.print(f"\n[bold red]Audio Error: {data.get('message')}[/bold red]")
+                        continue
+
                     # Handle DeepSeek Chain-of-Thought reasoning
                     reasoning = data.get("reasoning")
                     if reasoning:
@@ -672,6 +711,289 @@ def oneshot(prompt, model, **kwargs):
         )
     except Exception as e:
         console.print(f"\n[bold red]Network/Inference failure: {e}[/bold red]")
+
+
+@cli.group()
+def speech():
+    """Install, manage, and use local Whisper speech-to-text."""
+
+
+@speech.command(name="status")
+def speech_status():
+    """Show Whisper installation, model, and server state."""
+    try:
+        if is_server_online():
+            response = httpx.get(f"{API_BASE_URL}/api/speech/status", timeout=5.0)
+            response.raise_for_status()
+            status_data = response.json()
+        else:
+            from app.speech_manager import speech as speech_engine
+
+            status_data = speech_engine.get_status()
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_row("[bold cyan]Engine[/bold cyan]", status_data["engine"])
+        table.add_row("[bold cyan]Version[/bold cyan]", status_data["version"])
+        table.add_row(
+            "[bold cyan]Installation[/bold cyan]",
+            "[green]Ready[/green]"
+            if status_data["installed"]
+            else "[yellow]Not installed[/yellow]",
+        )
+        table.add_row("[bold cyan]Model[/bold cyan]", status_data["model"])
+        table.add_row(
+            "[bold cyan]Model file[/bold cyan]",
+            (
+                "[green]Ready[/green]"
+                if status_data["model_installed"]
+                else "[yellow]Not installed[/yellow]"
+            ),
+        )
+        table.add_row(
+            "[bold cyan]Speech server[/bold cyan]",
+            "[green]Running[/green]" if status_data["running"] else "[yellow]Stopped[/yellow]",
+        )
+        table.add_row("[bold cyan]Compute[/bold cyan]", "GPU" if status_data["use_gpu"] else "CPU")
+        if status_data.get("binary"):
+            table.add_row("[bold cyan]Binary[/bold cyan]", status_data["binary"])
+        table.add_row("[bold cyan]Model path[/bold cyan]", status_data["model_path"])
+        console.print(Panel(table, title="[bold green]LlamaStudio Speech[/bold green]"))
+        if not status_data["installed"] or not status_data["model_installed"]:
+            console.print(
+                f"Run [green]lls speech install --model {status_data['model']}[/green] to set it up."
+            )
+    except Exception as exc:
+        console.print(f"[bold red]Could not retrieve speech status: {exc}[/bold red]")
+
+
+@speech.command(name="install")
+@click.option(
+    "--model",
+    type=click.Choice(["base.en", "small.en", "large-v3-turbo-q5_0"]),
+    default="small.en",
+    show_default=True,
+    help="Whisper model to download.",
+)
+@click.option(
+    "--install-dir",
+    type=click.Path(path_type=Path),
+    help="Override the managed speech runtime directory.",
+)
+def speech_install(model: str, install_dir: Path | None):
+    """Install a pinned whisper.cpp binary and checksum-verified model."""
+    from app.speech_manager import speech as speech_engine
+
+    tasks: dict[str, int] = {}
+    try:
+        with Progress(
+            TextColumn("[cyan]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            console=console,
+        ) as progress:
+
+            def update_download(done: int, total: int | None, label: str) -> None:
+                if label not in tasks:
+                    tasks[label] = progress.add_task(label, total=total)
+                progress.update(tasks[label], completed=done, total=total)
+
+            result = speech_engine.install(
+                model=model,
+                install_dir=install_dir,
+                progress=update_download,
+            )
+        console.print(
+            Panel(
+                "[bold green]Local speech-to-text is ready.[/bold green]\n"
+                f"Model: [cyan]{result['model']}[/cyan]\n"
+                f"Runtime: [dim]{result['install_dir']}[/dim]\n\n"
+                "Try [green]lls speech record[/green] or use the microphone in chat.",
+                border_style="green",
+            )
+        )
+    except Exception as exc:
+        console.print(f"[bold red]Speech installation failed: {exc}[/bold red]")
+        raise click.exceptions.Exit(1) from exc
+
+
+@speech.command(name="load")
+@click.argument("model", required=False)
+@click.option(
+    "--gpu/--cpu",
+    default=None,
+    help="Run Whisper on the GPU or CPU. The default uses the saved setting.",
+)
+def speech_load(model: str | None, gpu: bool | None):
+    """Start the persistent Whisper transcription server."""
+    if not ensure_server_online():
+        raise click.exceptions.Exit(1)
+    try:
+        response = httpx.post(
+            f"{API_BASE_URL}/api/speech/load",
+            json={"model": model, "use_gpu": gpu},
+            timeout=90.0,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(response_error(response))
+        data = response.json()
+        console.print(
+            f"[bold green]Whisper is ready.[/bold green] "
+            f"Model [cyan]{data['model']}[/cyan] on "
+            f"[cyan]{'GPU' if data['use_gpu'] else 'CPU'}[/cyan]."
+        )
+    except Exception as exc:
+        console.print(f"[bold red]Could not start speech engine: {exc}[/bold red]")
+        raise click.exceptions.Exit(1) from exc
+
+
+@speech.command(name="eject")
+def speech_eject():
+    """Unload Whisper and release its memory."""
+    if not is_server_online():
+        console.print(
+            "[yellow]LlamaStudio is offline; no managed speech server is active.[/yellow]"
+        )
+        return
+    try:
+        response = httpx.post(f"{API_BASE_URL}/api/speech/eject", timeout=10.0)
+        if response.status_code != 200:
+            raise RuntimeError(response_error(response))
+        console.print("[bold green]Whisper has been unloaded.[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Could not stop speech engine: {exc}[/bold red]")
+        raise click.exceptions.Exit(1) from exc
+
+
+def request_transcription(
+    audio: bytes,
+    *,
+    content_type: str,
+    language: str,
+    translate: bool,
+) -> str:
+    """Send encoded audio to the LlamaStudio speech API and return text."""
+    if not ensure_server_online():
+        raise RuntimeError("LlamaStudio API server could not be started.")
+    response = httpx.post(
+        f"{API_BASE_URL}/api/speech/transcribe",
+        params={"language": language, "translate": str(translate).lower()},
+        content=audio,
+        headers={"Content-Type": content_type},
+        timeout=300.0,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(response_error(response))
+    return str(response.json()["text"]).strip()
+
+
+@speech.command(name="transcribe")
+@click.argument("audio_path", type=click.Path(path_type=Path))
+@click.option("--language", default="auto", show_default=True)
+@click.option("--translate", is_flag=True, help="Translate recognized speech to English.")
+def speech_transcribe(audio_path: Path, language: str, translate: bool):
+    """Transcribe an audio file inside the configured workspace."""
+    from app.tools import check_path_safe
+
+    try:
+        safe_path = check_path_safe(str(audio_path))
+        if not safe_path.is_file():
+            raise RuntimeError(f"Audio file not found: {audio_path}")
+        suffix_types = {
+            ".flac": "audio/flac",
+            ".mp3": "audio/mpeg",
+            ".ogg": "audio/ogg",
+            ".wav": "audio/wav",
+            ".webm": "audio/webm",
+            ".m4a": "audio/mp4",
+        }
+        text = request_transcription(
+            safe_path.read_bytes(),
+            content_type=suffix_types.get(safe_path.suffix.lower(), "application/octet-stream"),
+            language=language,
+            translate=translate,
+        )
+        console.print(text)
+    except Exception as exc:
+        console.print(f"[bold red]Transcription failed: {exc}[/bold red]")
+        raise click.exceptions.Exit(1) from exc
+
+
+@speech.command(name="record")
+@click.option("--device", default="default", show_default=True, help="ALSA capture device.")
+@click.option("--language", default="auto", show_default=True)
+@click.option("--translate", is_flag=True, help="Translate recognized speech to English.")
+def speech_record(device: str, language: str, translate: bool):
+    """Record now, press Enter to stop, then print the transcript."""
+    from app.tools import check_path_safe
+
+    recorder = shutil.which("arecord")
+    if recorder is None:
+        console.print("[bold red]arecord is required for terminal microphone capture.[/bold red]")
+        raise click.exceptions.Exit(1)
+
+    workspace = check_path_safe(".")
+    with tempfile.NamedTemporaryFile(
+        prefix=".lls-speech-",
+        suffix=".wav",
+        dir=workspace,
+        delete=False,
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+    process: subprocess.Popen | None = None
+    try:
+        process = subprocess.Popen(
+            [
+                recorder,
+                "--quiet",
+                "--device",
+                device,
+                "--format",
+                "S16_LE",
+                "--rate",
+                "16000",
+                "--channels",
+                "1",
+                "--file-type",
+                "wav",
+                str(temporary_path),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        console.print(
+            "[bold red]● Recording[/bold red] — press [bold]Enter[/bold] to stop and transcribe."
+        )
+        click.getchar()
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+
+        if temporary_path.stat().st_size <= 44:
+            detail = (process.stderr.read() if process.stderr else b"").decode(
+                "utf-8", errors="replace"
+            )
+            raise RuntimeError(detail.strip() or "The microphone recording was empty.")
+        text = request_transcription(
+            temporary_path.read_bytes(),
+            content_type="audio/wav",
+            language=language,
+            translate=translate,
+        )
+        console.print(Panel(text, title="[bold green]Transcript[/bold green]"))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Recording cancelled.[/yellow]")
+    except Exception as exc:
+        console.print(f"[bold red]Recording failed: {exc}[/bold red]")
+        raise click.exceptions.Exit(1) from exc
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=2)
+        temporary_path.unlink(missing_ok=True)
 
 
 @cli.command()
