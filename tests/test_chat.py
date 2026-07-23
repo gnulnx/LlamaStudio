@@ -12,7 +12,7 @@ import httpx
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.chat import MAX_TOOL_RESULT_CHARS, ImageAttachment, chat
+from app.chat import MAX_TOOL_RESULT_CHARS, AudioAttachment, ImageAttachment, chat
 from app.tools import ToolResult
 
 
@@ -184,6 +184,17 @@ class TestChatStreaming(unittest.TestCase):
             "size": len(image_bytes),
         })
 
+    @staticmethod
+    def audio_attachment():
+        audio_bytes = b"RIFF\x24\x00\x00\x00WAVEfmt "
+        encoded = base64.b64encode(audio_bytes).decode("ascii")
+        return AudioAttachment.from_payload({
+            "name": "hello.wav",
+            "mime_type": "audio/wav",
+            "data_url": f"data:audio/wav;base64,{encoded}",
+            "size": len(audio_bytes),
+        })
+
     def chat_defaults(self, max_tool_iterations=50):
         return {
             "system_prompt": "You are a helpful assistant.",
@@ -342,6 +353,78 @@ class TestChatStreaming(unittest.TestCase):
         self.assertLess(len(tool_message["content"]), 100)
         self.assertEqual(image_message["role"], "user")
         self.assertEqual(image_message["content"][1]["type"], "image_url")
+
+    def test_direct_audio_is_sent_as_input_audio_content_not_tokenized_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+            CapturingHttpClient.payloads = []
+            attachment = self.audio_attachment()
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(),
+                ),
+                patch("app.chat.httpx.Client", CapturingHttpClient),
+                patch("app.server_manager.server.supports_audio", return_value=True),
+            ):
+                list(
+                    chat.stream_chat(
+                        "Transcribe this audio.",
+                        audios=[attachment],
+                        enable_thinking=False,
+                    )
+                )
+
+        content = next(
+            message["content"]
+            for message in CapturingHttpClient.payloads[0]["messages"]
+            if message["role"] == "user"
+        )
+        self.assertEqual(content[0]["type"], "input_audio")
+        self.assertEqual(content[0]["input_audio"]["format"], "wav")
+        self.assertEqual(content[1], {"type": "text", "text": "Transcribe this audio."})
+        self.assertEqual(
+            base64.b64decode(content[0]["input_audio"]["data"]),
+            b"RIFF\x24\x00\x00\x00WAVEfmt ",
+        )
+        self.assertNotIn("tools", CapturingHttpClient.payloads[0])
+
+    def test_read_file_audio_becomes_short_tool_text_plus_multimodal_user_part(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+            CapturingToolThenTextHttpClient.payloads = []
+            attachment = self.audio_attachment()
+            tool_result = ToolResult(
+                content="Loaded audio 'hello.wav' (16 bytes) as multimodal input.",
+                audios=[attachment.to_dict()],
+            )
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(max_tool_iterations=3),
+                ),
+                patch("app.chat.httpx.Client", CapturingToolThenTextHttpClient),
+                patch("app.tools.execute_tool", return_value=tool_result),
+                patch("app.server_manager.server.supports_audio", return_value=True),
+            ):
+                list(chat.stream_chat("Inspect hello.wav"))
+
+        second_messages = CapturingToolThenTextHttpClient.payloads[1]["messages"]
+        tool_message = next(message for message in second_messages if message["role"] == "tool")
+        audio_message = second_messages[second_messages.index(tool_message) + 1]
+        self.assertLess(len(tool_message["content"]), 100)
+        self.assertEqual(audio_message["role"], "user")
+        self.assertEqual(audio_message["content"][0]["type"], "input_audio")
+        self.assertIn("tools", CapturingToolThenTextHttpClient.payloads[0])
+        self.assertNotIn("tools", CapturingToolThenTextHttpClient.payloads[1])
 
     def test_legacy_oversized_tool_output_is_bounded_before_api_request(self):
         from app.chat import _bounded_tool_result

@@ -5,10 +5,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app.launch_context import browser_host
 from app.launcher import app_url, open_browser, select_launch_view
 
 
 class TestLauncherRouting(unittest.TestCase):
+    def test_any_interface_opens_loopback_for_microphone_secure_context(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(browser_host("0.0.0.0"), "127.0.0.1")
+
     def test_app_url_includes_launch_view_when_supplied(self):
         with patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}):
             self.assertEqual(app_url("discover"), "http://b2:8765/?view=discover")

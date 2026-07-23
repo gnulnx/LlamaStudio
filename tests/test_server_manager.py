@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -32,6 +32,19 @@ class TestServerManagerCommand(unittest.TestCase):
         self.assertIn("--timeout", cmd)
         timeout_index = cmd.index("--timeout")
         self.assertEqual(cmd[timeout_index + 1], "900")
+
+    def test_supports_audio_reads_active_server_modalities(self):
+        server = ServerManager()
+        response = Mock()
+        response.json.return_value = {"modalities": {"vision": True, "audio": True}}
+
+        with (
+            patch.object(server, "_port_in_use", return_value=True),
+            patch("httpx.get", return_value=response),
+        ):
+            self.assertTrue(server.supports_audio())
+
+        response.raise_for_status.assert_called_once()
 
     @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
     def test_build_command_allows_task_timeout_override(self, _mock_resolve):

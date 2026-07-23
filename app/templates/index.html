@@ -306,7 +306,7 @@
         }
 
         .chat-pane.drag-active::after {
-            content: "Drop images to attach";
+            content: "Drop images or audio to attach";
             position: absolute;
             inset: 12px;
             z-index: 100;
@@ -667,6 +667,47 @@
             cursor: pointer;
         }
 
+        .pending-audio {
+            position: relative;
+            min-width: 210px;
+            height: 76px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-input);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 38px 12px 14px;
+        }
+
+        .pending-audio i {
+            color: var(--accent-hover);
+            font-size: 22px;
+        }
+
+        .pending-audio span {
+            max-width: 240px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .pending-audio button {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            cursor: pointer;
+        }
+
         .message-images {
             display: flex;
             gap: 8px;
@@ -681,6 +722,32 @@
             border: 1px solid var(--border);
             object-fit: contain;
             background: rgba(0, 0, 0, 0.2);
+        }
+
+        .message-audios {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .message-audio {
+            min-width: min(100%, 360px);
+        }
+
+        .message-audio-label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 5px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .message-audio audio {
+            display: block;
+            width: min(100%, 360px);
+            height: 36px;
         }
 
         .vision-recovery {
@@ -716,6 +783,28 @@
         .attach-btn:hover {
             color: var(--accent-hover);
             border-color: var(--accent);
+        }
+
+        .attach-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .mic-btn.recording {
+            color: white;
+            background: var(--status-red);
+            border-color: var(--status-red);
+            animation: microphone-pulse 1.4s ease-in-out infinite;
+        }
+
+        .mic-btn.processing {
+            color: var(--accent-hover);
+            border-color: var(--accent);
+        }
+
+        @keyframes microphone-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.35); }
+            50% { box-shadow: 0 0 0 7px rgba(231, 76, 60, 0); }
         }
 
         .thinking-control {
@@ -1846,9 +1935,16 @@
                 <div class="input-panel">
                     <div class="pending-image-tray" id="pendingImageTray"></div>
                     <div class="input-wrapper">
-                        <input type="file" id="chatImageInput" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple hidden onchange="handleChatImageFiles(this.files); this.value = ''">
-                        <button class="attach-btn" type="button" onclick="document.getElementById('chatImageInput').click()" title="Attach image">
+                        <input type="file" id="chatImageInput" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,audio/wav,audio/x-wav,audio/mpeg,audio/mp3,audio/flac,audio/x-flac" multiple hidden onchange="handleChatMediaFiles(this.files); this.value = ''">
+                        <button class="attach-btn" type="button" onclick="document.getElementById('chatImageInput').click()" title="Attach image or audio">
                             <i class="fa-solid fa-paperclip"></i>
+                        </button>
+                        <button class="attach-btn mic-btn" id="microphoneBtn" type="button"
+                                onclick="toggleMicrophoneRecording()"
+                                title="Start microphone recording"
+                                aria-label="Start microphone recording"
+                                aria-pressed="false">
+                            <i class="fa-solid fa-microphone"></i>
                         </button>
                         <textarea class="chat-input" id="chatInput" 
                                   placeholder="Type a message..." rows="1"
@@ -2449,7 +2545,18 @@
     const SUPPORTED_CHAT_IMAGE_TYPES = new Set([
         'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp'
     ]);
+    const MAX_CHAT_AUDIOS = 1;
+    const MAX_CHAT_AUDIO_BYTES = 25 * 1024 * 1024;
+    const SUPPORTED_CHAT_AUDIO_TYPES = new Set([
+        'audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3', 'audio/flac', 'audio/x-flac'
+    ]);
     let pendingChatImages = [];
+    let pendingChatAudios = [];
+    let microphoneRecorder = null;
+    let microphoneStream = null;
+    let microphoneChunks = [];
+    let microphoneState = 'idle';
+    let microphoneCaptureMode = null;
 
     async function fetchGpuInfo() {
         try {
@@ -2626,6 +2733,7 @@
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendMsgBtn');
         const thinkingToggle = document.getElementById('chatThinkingToggle');
+        const microphoneBtn = document.getElementById('microphoneBtn');
 
         const activeConv = conversations.find(c => c.is_active);
         const hasMessages = activeConv && activeConv.message_count > 0;
@@ -2641,6 +2749,7 @@
             }
             if (sendBtn) sendBtn.disabled = false;
             if (thinkingToggle) thinkingToggle.disabled = false;
+            if (microphoneBtn && microphoneState === 'idle') microphoneBtn.disabled = false;
             if (welcomeTitle) welcomeTitle.textContent = "Ready to Chat";
             if (welcomeDescription) welcomeDescription.textContent = "Start typing below or open a new conversation thread.";
             if (welcomeQuickLoadBtn) welcomeQuickLoadBtn.style.display = "none";
@@ -2651,6 +2760,7 @@
             }
             if (sendBtn) sendBtn.disabled = true;
             if (thinkingToggle) thinkingToggle.disabled = true;
+            if (microphoneBtn && microphoneState === 'idle') microphoneBtn.disabled = true;
             if (welcomeTitle) welcomeTitle.textContent = "No Model Loaded";
             if (welcomeDescription) welcomeDescription.textContent = "You need to load a model before you can start conversing. Switch to the Models tab to customize and load.";
             if (welcomeQuickLoadBtn) welcomeQuickLoadBtn.style.display = discoveredModels.length > 0 ? "block" : "none";
@@ -3278,6 +3388,8 @@
                 }
             } else if (b.type === 'vision_error') {
                 html += renderVisionRecovery(b.message, b.recovery);
+            } else if (b.type === 'audio_error') {
+                html += `<div style="color:var(--status-red); font-weight:600;"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(b.message || 'Audio input is not available for this model.')}</div>`;
             } else if (b.type === 'metrics') {
                 html += renderResponseMetrics(b.metrics);
             } else if (b.type === 'tool') {
@@ -3351,10 +3463,11 @@
                 const msg = messages[i];
                 if (msg.role === 'user') {
                     const userImages = renderChatImages(msg.images || []);
+                    const userAudios = renderChatAudios(msg.audios || []);
                     html += `
                         <div class="msg user">
                             <div class="msg-avatar">Y</div>
-                            <div class="msg-body">${userImages}${escapeHtml(msg.content || '').replace(/\n/g, '<br>')}</div>
+                            <div class="msg-body">${userImages}${userAudios}${escapeHtml(msg.content || '').replace(/\n/g, '<br>')}</div>
                         </div>
                     `;
                 } else if (msg.role === 'assistant') {
@@ -3483,6 +3596,29 @@
         `;
     }
 
+    function isSafeChatAudioDataUrl(dataUrl) {
+        return typeof dataUrl === 'string'
+            && /^data:audio\/(?:wav|x-wav|mpeg|mp3|flac|x-flac);base64,[A-Za-z0-9+/=\r\n]+$/.test(dataUrl);
+    }
+
+    function renderChatAudios(audios) {
+        const safeAudios = (audios || []).filter(audio => isSafeChatAudioDataUrl(audio.data_url));
+        if (safeAudios.length === 0) return '';
+        return `
+            <div class="message-audios">
+                ${safeAudios.map(audio => `
+                    <div class="message-audio">
+                        <div class="message-audio-label">
+                            <i class="fa-solid fa-file-audio"></i>
+                            <span>${escapeHtml(audio.name || 'Attached audio')}</span>
+                        </div>
+                        <audio controls preload="metadata" src="${audio.data_url}"></audio>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
     function renderVisionRecovery(message, recovery) {
         const recoveryData = recovery || {};
         let action = '';
@@ -3512,11 +3648,11 @@
         `;
     }
 
-    function createMessageHtmlSnippet(role, content, images = []) {
+    function createMessageHtmlSnippet(role, content, images = [], audios = []) {
         const avatar = role === 'user' ? 'Y' : 'AI';
         const parsedMarkdown = role === 'assistant' 
             ? marked.parse(content) 
-            : `${renderChatImages(images)}${escapeHtml(content || '').replace(/\n/g, '<br>')}`;
+            : `${renderChatImages(images)}${renderChatAudios(audios)}${escapeHtml(content || '').replace(/\n/g, '<br>')}`;
 
         return `
             <div class="msg ${role}">
@@ -3610,10 +3746,10 @@
         const pane = document.getElementById('chatPane');
         if (pane) pane.classList.remove('drag-active');
         const files = event.dataTransfer ? event.dataTransfer.files : [];
-        await handleChatImageFiles(files);
+        await handleChatMediaFiles(files);
     }
 
-    function readChatImageFile(file) {
+    function readChatMediaFile(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve({
@@ -3627,35 +3763,62 @@
         });
     }
 
-    async function handleChatImageFiles(fileList) {
-        const files = Array.from(fileList || []);
-        for (const file of files) {
-            if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
-                showNotification('Image limit', `You can attach up to ${MAX_CHAT_IMAGES} images.`);
-                break;
-            }
-            if (!SUPPORTED_CHAT_IMAGE_TYPES.has(file.type)) {
-                showNotification('Unsupported image', `${file.name} is not a supported raster image.`);
-                continue;
-            }
-            if (file.size > MAX_CHAT_IMAGE_BYTES) {
-                showNotification('Image too large', `${file.name} exceeds the 10 MB limit.`);
-                continue;
-            }
-            try {
-                pendingChatImages.push(await readChatImageFile(file));
-            } catch (error) {
-                showNotification('Image read failed', error.message);
-            }
-        }
-        renderPendingChatImages();
+    function readChatImageFile(file) {
+        return readChatMediaFile(file);
     }
 
-    function renderPendingChatImages() {
+    async function handleChatMediaFiles(fileList) {
+        const files = Array.from(fileList || []);
+        for (const file of files) {
+            if (SUPPORTED_CHAT_IMAGE_TYPES.has(file.type)) {
+                if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
+                    showNotification('Image limit', `You can attach up to ${MAX_CHAT_IMAGES} images.`);
+                    continue;
+                }
+                if (file.size > MAX_CHAT_IMAGE_BYTES) {
+                    showNotification('Image too large', `${file.name} exceeds the 10 MB limit.`);
+                    continue;
+                }
+                try {
+                    pendingChatImages.push(await readChatMediaFile(file));
+                } catch (error) {
+                    showNotification('Image read failed', error.message);
+                }
+            } else if (SUPPORTED_CHAT_AUDIO_TYPES.has(file.type)) {
+                if (pendingChatAudios.length >= MAX_CHAT_AUDIOS) {
+                    showNotification('Audio limit', 'You can attach one audio file per message.');
+                    continue;
+                }
+                if (file.size > MAX_CHAT_AUDIO_BYTES) {
+                    showNotification('Audio too large', `${file.name} exceeds the 25 MB limit.`);
+                    continue;
+                }
+                try {
+                    pendingChatAudios.push(await readChatMediaFile(file));
+                } catch (error) {
+                    showNotification('Audio read failed', error.message);
+                }
+            } else {
+                showNotification(
+                    'Unsupported attachment',
+                    `${file.name} is not a supported image or WAV, MP3, or FLAC audio file.`
+                );
+            }
+        }
+        renderPendingChatMedia();
+    }
+
+    async function handleChatImageFiles(fileList) {
+        await handleChatMediaFiles(fileList);
+    }
+
+    function renderPendingChatMedia() {
         const tray = document.getElementById('pendingImageTray');
         if (!tray) return;
-        tray.style.display = pendingChatImages.length > 0 ? 'flex' : 'none';
-        tray.innerHTML = pendingChatImages.map((image, index) => `
+        tray.style.display = pendingChatImages.length > 0 || pendingChatAudios.length > 0
+            ? 'flex'
+            : 'none';
+        const imageCards = pendingChatImages.map((image, index) => `
             <div class="pending-image" title="${escapeHtml(image.name)}">
                 <img src="${image.data_url}" alt="${escapeHtml(image.name)}">
                 <button type="button" onclick="removePendingChatImage(${index})" aria-label="Remove ${escapeHtml(image.name)}">
@@ -3663,11 +3826,30 @@
                 </button>
             </div>
         `).join('');
+        const audioCards = pendingChatAudios.map((audio, index) => `
+            <div class="pending-audio" title="${escapeHtml(audio.name)}">
+                <i class="fa-solid fa-file-audio"></i>
+                <span>${escapeHtml(audio.name)}</span>
+                <button type="button" onclick="removePendingChatAudio(${index})" aria-label="Remove ${escapeHtml(audio.name)}">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        `).join('');
+        tray.innerHTML = imageCards + audioCards;
+    }
+
+    function renderPendingChatImages() {
+        renderPendingChatMedia();
     }
 
     function removePendingChatImage(index) {
         pendingChatImages.splice(index, 1);
-        renderPendingChatImages();
+        renderPendingChatMedia();
+    }
+
+    function removePendingChatAudio(index) {
+        pendingChatAudios.splice(index, 1);
+        renderPendingChatMedia();
     }
 
     function handleChatInputKey(e) {
@@ -3682,11 +3864,301 @@
         el.style.height = Math.min(el.scrollHeight, 180) + 'px';
     }
 
-    function buildChatRequestPayload(displayText, outgoingImages) {
+    function setMicrophoneState(state) {
+        microphoneState = state;
+        const button = document.getElementById('microphoneBtn');
+        if (!button) return;
+        const icon = button.querySelector('i');
+        button.classList.toggle('recording', state === 'recording');
+        button.classList.toggle('processing', state === 'processing');
+        button.disabled = state === 'processing' || (state === 'idle' && !isServerRunning);
+        button.setAttribute('aria-pressed', state === 'recording' ? 'true' : 'false');
+        if (state === 'recording') {
+            button.title = 'Stop recording and transcribe';
+            button.setAttribute('aria-label', button.title);
+            if (icon) icon.className = 'fa-solid fa-stop';
+        } else if (state === 'processing') {
+            button.title = 'Transcribing recording';
+            button.setAttribute('aria-label', button.title);
+            if (icon) icon.className = 'fa-solid fa-spinner fa-spin';
+        } else {
+            button.title = 'Start microphone recording';
+            button.setAttribute('aria-label', button.title);
+            if (icon) icon.className = 'fa-solid fa-microphone';
+        }
+    }
+
+    function stopMicrophoneTracks() {
+        if (microphoneStream) {
+            microphoneStream.getTracks().forEach(track => track.stop());
+            microphoneStream = null;
+        }
+    }
+
+    async function ensureSpeechEngineReady() {
+        const statusResponse = await fetch('/api/speech/status');
+        if (!statusResponse.ok) {
+            throw new Error('Could not check the local speech engine.');
+        }
+        const status = await statusResponse.json();
+        if (!status.installed || !status.model_installed) {
+            throw new Error(
+                `Whisper ${status.model || 'small.en'} is not installed. ` +
+                `Run "lls speech install --model ${status.model || 'small.en'}".`
+            );
+        }
+        if (!status.running) {
+            const loadResponse = await fetch('/api/speech/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: status.model })
+            });
+            if (!loadResponse.ok) {
+                let detail = 'Could not start Whisper.';
+                try {
+                    const body = await loadResponse.json();
+                    detail = body.detail || detail;
+                } catch (error) { }
+                throw new Error(detail);
+            }
+        }
+    }
+
+    function preferredMicrophoneMimeType() {
+        const candidates = [
+            'audio/webm;codecs=opus',
+            'audio/ogg;codecs=opus',
+            'audio/webm',
+            'audio/mp4'
+        ];
+        if (!window.MediaRecorder || typeof window.MediaRecorder.isTypeSupported !== 'function') {
+            return '';
+        }
+        return candidates.find(type => window.MediaRecorder.isTypeSupported(type)) || '';
+    }
+
+    function microphoneAudioConstraints(deviceId = '') {
+        const constraints = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        };
+        if (deviceId) constraints.deviceId = { exact: deviceId };
+        return constraints;
+    }
+
+    async function acquireMicrophoneStream() {
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                audio: microphoneAudioConstraints()
+            });
+        } catch (defaultError) {
+            // Chrome can retain a removed USB device as its "default". Enumerate
+            // concrete inputs and try them directly before giving up.
+            let inputs = [];
+            if (typeof navigator.mediaDevices.enumerateDevices === 'function') {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    inputs = devices
+                        .filter(device => (
+                            device.kind === 'audioinput'
+                            && device.deviceId
+                            && device.deviceId !== 'default'
+                            && device.deviceId !== 'communications'
+                        ))
+                        .sort((left, right) => {
+                            const leftUsb = /usb/i.test(left.label || '') ? 0 : 1;
+                            const rightUsb = /usb/i.test(right.label || '') ? 0 : 1;
+                            return leftUsb - rightUsb;
+                        });
+                } catch (error) {
+                    console.warn('Could not enumerate microphone devices', error);
+                }
+            }
+
+            for (const input of inputs) {
+                try {
+                    return await navigator.mediaDevices.getUserMedia({
+                        audio: microphoneAudioConstraints(input.deviceId)
+                    });
+                } catch (error) {
+                    console.warn(`Could not open microphone ${input.label || input.deviceId}`, error);
+                }
+            }
+
+            // A final unconstrained request covers browsers that reject optional
+            // processing constraints but do expose a valid default input.
+            try {
+                return await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (fallbackError) {
+                if (inputs.length === 0) {
+                    const noDeviceError = new Error(
+                        'No microphone is visible to the browser. Check the system input ' +
+                        'device and the microphone permission for 127.0.0.1.'
+                    );
+                    noDeviceError.name = 'NotFoundError';
+                    throw noDeviceError;
+                }
+                throw defaultError;
+            }
+        }
+    }
+
+    async function startSystemMicrophoneRecording() {
+        const response = await fetch('/api/speech/recording/start', {
+            method: 'POST',
+            headers: { 'X-LlamaStudio-Local': 'speech-capture' }
+        });
+        if (!response.ok) {
+            let detail = 'Could not open the system microphone.';
+            try {
+                const body = await response.json();
+                detail = body.detail || detail;
+            } catch (error) { }
+            throw new Error(detail);
+        }
+        microphoneCaptureMode = 'system';
+        setMicrophoneState('recording');
+    }
+
+    async function startMicrophoneRecording() {
+        if (
+            !navigator.mediaDevices
+            || typeof navigator.mediaDevices.getUserMedia !== 'function'
+            || !window.MediaRecorder
+        ) {
+            throw new Error('This browser does not support microphone recording.');
+        }
+        if (window.isSecureContext === false) {
+            throw new Error('Microphone access requires localhost or an HTTPS LlamaStudio URL.');
+        }
+
+        await ensureSpeechEngineReady();
+        try {
+            microphoneStream = await acquireMicrophoneStream();
+        } catch (error) {
+            if (error.name === 'NotFoundError') {
+                await startSystemMicrophoneRecording();
+                return;
+            }
+            throw error;
+        }
+        microphoneChunks = [];
+        microphoneCaptureMode = 'browser';
+        const mimeType = preferredMicrophoneMimeType();
+        microphoneRecorder = mimeType
+            ? new window.MediaRecorder(microphoneStream, { mimeType })
+            : new window.MediaRecorder(microphoneStream);
+        microphoneRecorder.addEventListener('dataavailable', event => {
+            if (event.data && event.data.size > 0) microphoneChunks.push(event.data);
+        });
+        microphoneRecorder.addEventListener('stop', finishMicrophoneRecording, { once: true });
+        microphoneRecorder.start(250);
+        setMicrophoneState('recording');
+    }
+
+    async function stopMicrophoneRecording() {
+        if (microphoneCaptureMode === 'system') {
+            setMicrophoneState('processing');
+            await finishSystemMicrophoneRecording();
+            return;
+        }
+        if (!microphoneRecorder || microphoneRecorder.state === 'inactive') return;
+        setMicrophoneState('processing');
+        microphoneRecorder.stop();
+        stopMicrophoneTracks();
+    }
+
+    function insertMicrophoneTranscript(text) {
+        const input = document.getElementById('chatInput');
+        if (!input) return;
+        const existing = input.value.trimEnd();
+        input.value = existing ? `${existing} ${text}` : text;
+        autoResizeTextarea(input);
+        input.focus();
+    }
+
+    async function finishSystemMicrophoneRecording() {
+        try {
+            const response = await fetch('/api/speech/recording/stop', {
+                method: 'POST',
+                headers: { 'X-LlamaStudio-Local': 'speech-capture' }
+            });
+            if (!response.ok) {
+                let detail = `Transcription failed with status ${response.status}.`;
+                try {
+                    const body = await response.json();
+                    detail = body.detail || detail;
+                } catch (error) { }
+                throw new Error(detail);
+            }
+            const result = await response.json();
+            insertMicrophoneTranscript(result.text);
+        } catch (error) {
+            showNotification('Microphone transcription failed', error.message);
+        } finally {
+            microphoneCaptureMode = null;
+            setMicrophoneState('idle');
+        }
+    }
+
+    async function finishMicrophoneRecording() {
+        try {
+            const mimeType = microphoneRecorder && microphoneRecorder.mimeType
+                ? microphoneRecorder.mimeType
+                : 'audio/webm';
+            const recording = new Blob(microphoneChunks, { type: mimeType });
+            if (!recording.size) throw new Error('The microphone recording was empty.');
+            const response = await fetch('/api/speech/transcribe', {
+                method: 'POST',
+                headers: { 'Content-Type': mimeType },
+                body: recording
+            });
+            if (!response.ok) {
+                let detail = `Transcription failed with status ${response.status}.`;
+                try {
+                    const body = await response.json();
+                    detail = body.detail || detail;
+                } catch (error) { }
+                throw new Error(detail);
+            }
+            const result = await response.json();
+            insertMicrophoneTranscript(result.text);
+        } catch (error) {
+            showNotification('Microphone transcription failed', error.message);
+        } finally {
+            stopMicrophoneTracks();
+            microphoneRecorder = null;
+            microphoneChunks = [];
+            microphoneCaptureMode = null;
+            setMicrophoneState('idle');
+        }
+    }
+
+    async function toggleMicrophoneRecording() {
+        if (microphoneState === 'recording') {
+            await stopMicrophoneRecording();
+            return;
+        }
+        if (microphoneState === 'processing') return;
+        try {
+            await startMicrophoneRecording();
+        } catch (error) {
+            stopMicrophoneTracks();
+            microphoneRecorder = null;
+            microphoneChunks = [];
+            microphoneCaptureMode = null;
+            setMicrophoneState('idle');
+            showNotification('Microphone unavailable', error.message);
+        }
+    }
+
+    function buildChatRequestPayload(displayText, outgoingImages, outgoingAudios = []) {
         const thinkingToggle = document.getElementById('chatThinkingToggle');
         return {
             message: displayText,
             images: outgoingImages,
+            audios: outgoingAudios,
             enable_thinking: thinkingToggle ? thinkingToggle.checked : true,
             system_prompt: document.getElementById('globalSystemPrompt').value,
             temperature: parseFloat(document.getElementById('globalTemp').value),
@@ -3705,13 +4177,26 @@
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
         const outgoingImages = pendingChatImages.slice();
-        if ((!text && outgoingImages.length === 0) || isCurrentlyStreaming || !isServerRunning) return;
-        const displayText = text || 'Describe this image.';
+        const outgoingAudios = pendingChatAudios.slice();
+        if (
+            (!text && outgoingImages.length === 0 && outgoingAudios.length === 0)
+            || isCurrentlyStreaming
+            || !isServerRunning
+        ) return;
+        let displayText = text;
+        if (!displayText && outgoingAudios.length > 0 && outgoingImages.length === 0) {
+            displayText = 'Transcribe this audio and respond to what was said.';
+        } else if (!displayText && outgoingImages.length > 0 && outgoingAudios.length === 0) {
+            displayText = 'Describe this image.';
+        } else if (!displayText) {
+            displayText = 'Analyze the attached media.';
+        }
 
         input.value = '';
         input.style.height = 'auto';
         pendingChatImages = [];
-        renderPendingChatImages();
+        pendingChatAudios = [];
+        renderPendingChatMedia();
 
         const welcome = document.getElementById('emptyWelcomeState');
         if (welcome) welcome.style.display = "none";
@@ -3719,7 +4204,7 @@
         const messagesList = document.getElementById('messagesList');
         messagesList.insertAdjacentHTML(
             'beforeend',
-            createMessageHtmlSnippet('user', displayText, outgoingImages)
+            createMessageHtmlSnippet('user', displayText, outgoingImages, outgoingAudios)
         );
         messagesList.style.display = "flex";
 
@@ -3748,7 +4233,9 @@
             const res = await fetch('/api/chat/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildChatRequestPayload(displayText, outgoingImages)),
+                body: JSON.stringify(
+                    buildChatRequestPayload(displayText, outgoingImages, outgoingAudios)
+                ),
                 signal: activeAbortController.signal
             });
 
@@ -3759,7 +4246,8 @@
                     detail = errorBody.detail || detail;
                 } catch (error) { }
                 pendingChatImages = outgoingImages.concat(pendingChatImages).slice(0, MAX_CHAT_IMAGES);
-                renderPendingChatImages();
+                pendingChatAudios = outgoingAudios.concat(pendingChatAudios).slice(0, MAX_CHAT_AUDIOS);
+                renderPendingChatMedia();
                 throw new Error(detail);
             }
 
@@ -3814,6 +4302,14 @@
                                 type: 'vision_error',
                                 message: data.message,
                                 recovery: data.recovery || null
+                            });
+                            renderStreamBlocks(assistDiv, streamBlocks);
+                        }
+
+                        if (data.type === 'audio_error') {
+                            streamBlocks.push({
+                                type: 'audio_error',
+                                message: data.message
                             });
                             renderStreamBlocks(assistDiv, streamBlocks);
                         }

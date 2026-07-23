@@ -440,5 +440,23 @@ class ServerManager:
             logger.warning("[server] Could not inspect multimodal capability: %s", exc)
             return False
 
+    def supports_audio(self) -> bool:
+        """Check whether the active llama-server projector exposes audio input."""
+        if not self.is_running:
+            return False
+        try:
+            import httpx
+
+            response = httpx.get(
+                f"http://127.0.0.1:{settings.LLAMA_SERVER_PORT}/props",
+                timeout=2,
+            )
+            response.raise_for_status()
+            modalities = response.json().get("modalities", {})
+            return modalities.get("audio") is True
+        except Exception as exc:
+            logger.warning("[server] Could not inspect audio capability: %s", exc)
+            return False
+
 
 server = ServerManager()

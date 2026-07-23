@@ -23,7 +23,23 @@ class TestConfigLoader(unittest.TestCase):
             self.assertEqual(app_config["schema_version"], 1)
             self.assertFalse(app_config["first_launch_completed"])
             self.assertEqual(app_config["workspace"]["root"], str(workspace))
+            self.assertEqual(app_config["speech"]["engine"], "whisper.cpp")
+            self.assertEqual(app_config["speech"]["model"], "small.en")
+            self.assertFalse(app_config["speech"]["use_gpu"])
             self.assertTrue(loader.model_profiles_file.exists())
+
+    def test_saves_speech_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loader = ConfigLoader(config_dir=Path(tmp) / "config")
+            loader.ensure_initialized(workspace_root=tmp)
+
+            speech_config = loader.get_speech_config()
+            speech_config.update({"model": "base.en", "use_gpu": True})
+            loader.save_speech_config(speech_config)
+
+            saved = loader.get_speech_config()
+            self.assertEqual(saved["model"], "base.en")
+            self.assertTrue(saved["use_gpu"])
 
     def test_migrates_legacy_model_settings_to_profiles(self):
         with tempfile.TemporaryDirectory() as tmp:

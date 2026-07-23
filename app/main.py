@@ -14,11 +14,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .chat import chat, validate_image_attachments
+from .chat import chat, validate_audio_attachments, validate_image_attachments
 from .config import settings
 from .config_store import config_loader
 from .logger import logger
 from .server_manager import server
+from .speech_manager import SpeechError, speech
 
 app = FastAPI(title="LLamaStudio")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -181,6 +182,7 @@ async def reload_current_model():
         "status": "ok",
         "model": model_path,
         "multimodal": server.supports_multimodal(),
+        "audio": server.supports_audio(),
     }
 
 
@@ -201,6 +203,97 @@ async def eject_model():
     """Eject the currently loaded model."""
     server.eject_model()
     return {"status": "ok", "running": False}
+
+
+# ─── Local speech-to-text ─────────────────────────────────────
+
+
+@app.get("/api/speech/status")
+async def speech_status():
+    """Return whisper.cpp installation and process state."""
+    return speech.get_status()
+
+
+@app.post("/api/speech/load")
+async def load_speech(request: Request):
+    """Load the configured Whisper model into the managed speech server."""
+    body = await request.json()
+    model = body.get("model")
+    use_gpu = body.get("use_gpu")
+    if use_gpu is not None and not isinstance(use_gpu, bool):
+        raise HTTPException(400, "use_gpu must be a boolean.")
+    try:
+        return await asyncio.to_thread(speech.start, model=model, use_gpu=use_gpu)
+    except SpeechError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.post("/api/speech/eject")
+async def eject_speech():
+    """Unload the managed Whisper model."""
+    stopped = await asyncio.to_thread(speech.stop)
+    return {"status": "ok", "running": False, "stopped": stopped}
+
+
+def _require_local_microphone_request(request: Request) -> None:
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(403, "System microphone capture is restricted to localhost.")
+    if request.headers.get("x-llamastudio-local") != "speech-capture":
+        raise HTTPException(403, "Missing local microphone request header.")
+
+
+@app.post("/api/speech/recording/start")
+async def start_speech_recording(request: Request):
+    """Start OS-default microphone capture as a browser fallback."""
+    _require_local_microphone_request(request)
+    try:
+        return await asyncio.to_thread(speech.start_system_recording)
+    except SpeechError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/speech/recording/stop")
+async def stop_speech_recording(
+    request: Request,
+    language: str = "auto",
+    translate: bool = False,
+):
+    """Stop OS-default microphone capture and return its transcript."""
+    _require_local_microphone_request(request)
+    try:
+        return await asyncio.to_thread(
+            speech.stop_system_recording,
+            language=language,
+            translate=translate,
+        )
+    except SpeechError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/speech/transcribe")
+async def transcribe_speech(
+    request: Request,
+    language: str = "auto",
+    translate: bool = False,
+):
+    """Transcribe a raw browser recording through managed whisper.cpp."""
+    content_type = request.headers.get("content-type", "").lower()
+    if not content_type.startswith("audio/") and content_type != "application/octet-stream":
+        raise HTTPException(415, "Upload an audio recording.")
+
+    audio = await request.body()
+    if len(audio) > settings.SPEECH_MAX_AUDIO_BYTES:
+        raise HTTPException(413, "The recording exceeds the 100 MB limit.")
+    try:
+        return await asyncio.to_thread(
+            speech.transcribe_bytes,
+            audio,
+            language=language,
+            translate=translate,
+        )
+    except SpeechError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/api/models/settings")
@@ -432,6 +525,7 @@ async def switch_conversation(conv_id: str):
                 "tool_call_id": m.tool_call_id,
                 "name": m.name,
                 "images": [image.to_dict() for image in m.images],
+                "audios": [audio.to_dict() for audio in m.audios],
                 "vision_recovery": m.vision_recovery,
                 "metrics": m.metrics,
             }
@@ -465,6 +559,7 @@ async def send_message(request: Request):
     user_msg = body.get("message", "").strip()
     try:
         images = validate_image_attachments(body.get("images"))
+        audios = validate_audio_attachments(body.get("audios"))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     temperature = body.get("temperature")
@@ -479,10 +574,15 @@ async def send_message(request: Request):
     if enable_thinking is not None and not isinstance(enable_thinking, bool):
         raise HTTPException(400, "enable_thinking must be a boolean")
 
-    if not user_msg and not images:
+    if not user_msg and not images and not audios:
         raise HTTPException(400, "Empty message")
     if not user_msg:
-        user_msg = "Describe this image."
+        if audios and not images:
+            user_msg = "Transcribe this audio and respond to what was said."
+        elif images and not audios:
+            user_msg = "Describe this image."
+        else:
+            user_msg = "Analyze the attached media."
 
     if not server.is_running:
         raise HTTPException(503, "llama-server is not running")
@@ -505,6 +605,7 @@ async def send_message(request: Request):
             repeat_penalty=repeat_penalty,
             stop=stop,
             images=images,
+            audios=audios,
             vision_recovery=vision_recovery,
             enable_thinking=enable_thinking,
         )
@@ -535,6 +636,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Stop llama-server when app shuts down."""
+    """Stop managed inference servers when the app shuts down."""
     logger.info("[LLamaStudio] Shutting down...")
+    speech.stop()
     server.eject_model()

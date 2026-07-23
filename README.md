@@ -30,7 +30,8 @@ Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Est
 - **📂 Automatic Model Scanning**: Scans standard directories (like `~/.lmstudio/models`) automatically on startup or via a one-click rescan button.
 - **🪐 Process Lifecycle Manager**: The underlying `llama-server` process only spins up when you explicitly load a model, releasing all system resources and GPU VRAM instantly when you click "Eject".
 - **🔧 Configurable Workspace Sandboxing**: Supports sandboxed agentic tool use (file read/write, commands, etc.) with real-time logs in the UI. Workspace and permission defaults are stored in the first-class app config.
-- **👁️ Multimodal Image Chat**: Drag raster images into chat or attach workspace images with `lls oneshot --image`; matching GGUF vision projectors are detected and recoverable from the UI.
+- **👁️ Multimodal Media Chat**: Drag raster images or WAV/MP3/FLAC audio into chat, or attach workspace media with `lls oneshot --image` / `--audio`; FLAC is normalized to llama.cpp-compatible WAV with `ffmpeg`.
+- **🎙️ Local Push-to-Talk**: Click the microphone once to record and again to stop. A managed `whisper.cpp` service transcribes locally and places editable text in the chat box; audio is never sent to the chat model.
 - **🖥️ XDG-Compliant Persistence**: App config, conversations, and first-class model profiles are stored outside the codebase directory in standard `~/.config/llamastudio/` with automated backward-compatible migrations.
 - **📦 Full Linux & macOS Portability**: Server binaries and model directories are resolved dynamically on startup.
 
@@ -189,13 +190,35 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
 | `eject` | `lls eject` | Gracefully unloads the active model to free GPU and CPU RAM. |
-| `oneshot`| `lls oneshot [--image PATH] [--no-thinking] [--max-tokens N] "prompt"` | Streams text, optional reasoning, tool calls, and multimodal workspace images directly in your terminal. Use `--no-thinking` for low-latency direct answers. |
+| `oneshot`| `lls oneshot [--image PATH] [--audio PATH] [--no-thinking] [--max-tokens N] "prompt"` | Streams text, optional reasoning, tool calls, and multimodal workspace images/audio directly in your terminal. Use `--no-thinking` for low-latency direct answers. |
+| `speech status` | `lls speech status` | Shows the local Whisper installation, selected model, compute mode, and server state. |
+| `speech install` | `lls speech install [--model small.en]` | Installs pinned, checksum-verified `whisper.cpp` Linux binaries and a local Whisper model. |
+| `speech load/eject` | `lls speech load [MODEL] [--gpu\|--cpu]` | Starts or stops the persistent speech-to-text server independently of the chat model. |
+| `speech transcribe` | `lls speech transcribe AUDIO` | Transcribes a workspace audio file locally, with optional language and English translation controls. |
+| `speech record` | `lls speech record [--device default]` | Starts terminal microphone capture immediately; press Enter to stop and print the transcript. |
+
+Set up push-to-talk once, then use the microphone beside the chat input:
+
+```bash
+lls speech install --model small.en
+lls speech status
+lls speech record
+```
+
+The browser control is a toggle, not a hold action. The first click starts recording, the red stop button ends it, and the transcript is inserted without auto-sending so it can be corrected first. Browser microphone access requires the loopback URL (`http://127.0.0.1:8765`) or HTTPS.
 
 For low-latency vision classification, disable reasoning and keep the answer budget small:
 
 ```bash
 lls oneshot --no-thinking --temperature 0 --max-tokens 32 \
   --image camera-frame.png "Answer in 10 words or fewer: what is ahead?"
+```
+
+For audio transcription or translation with an audio-capable model and projector:
+
+```bash
+lls oneshot --no-thinking --audio recording.flac \
+  "Transcribe this audio, translate it to English, and respond briefly."
 ```
 
 For example, to boot a model interactively:

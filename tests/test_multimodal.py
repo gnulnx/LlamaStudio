@@ -54,6 +54,28 @@ class TestMultimodalFiles(unittest.TestCase):
 
         self.assertEqual(result, "hello")
 
+    def test_read_file_returns_flac_as_structured_multimodal_result(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+            workspace = Path(tmp_dir)
+            audio_bytes = b"fLaC\x00\x00\x00\x22audio-data"
+            audio_path = workspace / "hello.flac"
+            audio_path.write_bytes(audio_bytes)
+
+            with (
+                patch("app.tools.config_loader.sandbox_disabled", return_value=False),
+                patch(
+                    "app.tools.config_loader.get_workspace_root",
+                    return_value=str(workspace),
+                ),
+            ):
+                result = read_file("hello.flac")
+
+        self.assertIsInstance(result, ToolResult)
+        self.assertLess(len(result.content), 100)
+        self.assertEqual(result.audios[0]["mime_type"], "audio/flac")
+        encoded = result.audios[0]["data_url"].split(",", 1)[1]
+        self.assertEqual(base64.b64decode(encoded), audio_bytes)
+
 
 class TestMultimodalModelLoading(unittest.TestCase):
     def llama_defaults(self):

@@ -6,6 +6,7 @@ Defines OpenAI-compatible schemas and implements execution for workspace-sandbox
 from __future__ import annotations
 
 import base64
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,9 @@ from .config_store import config_loader
 from .logger import logger
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+MAX_AUDIO_SECONDS = 10 * 60
+MODEL_AUDIO_SAMPLE_RATE = 16_000
 
 
 @dataclass(frozen=True)
@@ -22,6 +26,7 @@ class ToolResult:
 
     content: str
     images: list[dict] = field(default_factory=list)
+    audios: list[dict] = field(default_factory=list)
 
 
 def _detect_image_mime(header: bytes) -> str | None:
@@ -37,6 +42,74 @@ def _detect_image_mime(header: bytes) -> str | None:
     if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
         return "image/webp"
     return None
+
+
+def _detect_audio_mime(header: bytes) -> str | None:
+    """Return a supported audio MIME type based on file signature."""
+    if header.startswith(b"RIFF") and header[8:12] == b"WAVE":
+        return "audio/wav"
+    if header.startswith(b"fLaC"):
+        return "audio/flac"
+    if header.startswith(b"ID3") or (
+        len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0
+    ):
+        return "audio/mpeg"
+    return None
+
+
+def prepare_audio_for_model(audio_bytes: bytes, mime_type: str) -> tuple[bytes, str, str]:
+    """Return llama.cpp-compatible WAV/MP3 bytes, MIME type, and input_audio format."""
+    if mime_type == "audio/wav":
+        return audio_bytes, mime_type, "wav"
+    if mime_type == "audio/mpeg":
+        return audio_bytes, mime_type, "mp3"
+    if mime_type != "audio/flac":
+        raise ValueError("Only WAV, MP3, and FLAC audio files are supported.")
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise ValueError("FLAC input requires ffmpeg so it can be converted to WAV for llama.cpp.")
+
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-t",
+                str(MAX_AUDIO_SECONDS),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                str(MODEL_AUDIO_SAMPLE_RATE),
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "wav",
+                "pipe:1",
+            ],
+            input=audio_bytes,
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("FLAC conversion timed out.") from exc
+
+    if completed.returncode != 0 or not completed.stdout:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        logger.warning("[tools] FLAC conversion failed: %s", detail)
+        raise ValueError("The FLAC file could not be decoded.")
+
+    maximum_pcm_bytes = MAX_AUDIO_SECONDS * MODEL_AUDIO_SAMPLE_RATE * 2
+    if len(completed.stdout) >= maximum_pcm_bytes:
+        raise ValueError(f"Audio attachments must be shorter than {MAX_AUDIO_SECONDS} seconds.")
+    return completed.stdout, "audio/wav", "wav"
 
 
 def check_path_safe(file_path: str) -> Path:
@@ -75,7 +148,7 @@ def write_file(file_path: str, content: str) -> str:
 
 
 def read_file(file_path: str) -> str | ToolResult:
-    """Read text, or return raster images as token-safe multimodal content."""
+    """Read text, or return supported images/audio as token-safe multimodal content."""
     try:
         safe_path = check_path_safe(file_path)
         if not safe_path.exists():
@@ -83,25 +156,47 @@ def read_file(file_path: str) -> str | ToolResult:
         if not safe_path.is_file():
             return f"Error: '{file_path}' is a directory, not a file."
 
-        with open(safe_path, "rb") as image_file:
-            header = image_file.read(16)
-            mime_type = _detect_image_mime(header)
-            if mime_type:
+        with open(safe_path, "rb") as media_file:
+            header = media_file.read(16)
+            image_mime_type = _detect_image_mime(header)
+            if image_mime_type:
                 size = safe_path.stat().st_size
                 if size > MAX_IMAGE_BYTES:
                     return (
                         f"Error: Image '{file_path}' is {size} bytes; the maximum supported "
                         f"image size is {MAX_IMAGE_BYTES} bytes."
                     )
-                image_file.seek(0)
-                encoded = base64.b64encode(image_file.read()).decode("ascii")
+                media_file.seek(0)
+                encoded = base64.b64encode(media_file.read()).decode("ascii")
                 return ToolResult(
                     content=(f"Loaded image '{file_path}' ({size} bytes) as multimodal input."),
                     images=[
                         {
                             "name": safe_path.name,
-                            "mime_type": mime_type,
-                            "data_url": f"data:{mime_type};base64,{encoded}",
+                            "mime_type": image_mime_type,
+                            "data_url": f"data:{image_mime_type};base64,{encoded}",
+                            "size": size,
+                        }
+                    ],
+                )
+
+            audio_mime_type = _detect_audio_mime(header)
+            if audio_mime_type:
+                size = safe_path.stat().st_size
+                if size > MAX_AUDIO_BYTES:
+                    return (
+                        f"Error: Audio '{file_path}' is {size} bytes; the maximum supported "
+                        f"audio size is {MAX_AUDIO_BYTES} bytes."
+                    )
+                media_file.seek(0)
+                encoded = base64.b64encode(media_file.read()).decode("ascii")
+                return ToolResult(
+                    content=(f"Loaded audio '{file_path}' ({size} bytes) as multimodal input."),
+                    audios=[
+                        {
+                            "name": safe_path.name,
+                            "mime_type": audio_mime_type,
+                            "data_url": f"data:{audio_mime_type};base64,{encoded}",
                             "size": size,
                         }
                     ],
@@ -209,7 +304,7 @@ ALL_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a text file or load a supported raster image (PNG, JPEG, WebP, GIF, or BMP) as multimodal input from inside the workspace directory.",
+            "description": "Read a text file or load supported image/audio media as multimodal input from inside the workspace directory. Images: PNG, JPEG, WebP, GIF, BMP. Audio: WAV, MP3, FLAC.",
             "parameters": {
                 "type": "object",
                 "properties": {
