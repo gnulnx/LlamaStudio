@@ -4501,7 +4501,10 @@
         table.style.display = "table";
 
         try {
-            const res = await fetch(`/api/models/search?q=${encodeURIComponent(query)}&sort=${sort}`);
+            const res = await fetch(
+                `/api/models/search?q=${encodeURIComponent(query)}&sort=${sort}`,
+                { cache: 'no-store' }
+            );
             const data = await res.json();
             const models = data.models || [];
 
@@ -4571,7 +4574,10 @@
         readmeContent.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="margin-right:8px;"></i>Loading model details and README...`;
 
         try {
-            const res = await fetch(`/api/models/hf-details?repo_id=${encodeURIComponent(repoId)}`);
+            const res = await fetch(
+                `/api/models/hf-details?repo_id=${encodeURIComponent(repoId)}`,
+                { cache: 'no-store' }
+            );
             if (!res.ok) {
                 readmeContent.innerHTML = `<span style="color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation"></i> Failed to retrieve details for ${repoId}</span>`;
                 return;

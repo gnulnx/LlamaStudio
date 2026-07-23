@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import Response
+
 # Ensure the app package can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -179,8 +181,10 @@ class TestFastAPIPoints(unittest.TestCase):
 
         mock_search.return_value = [{"id": "test/model", "downloads": 10}]
 
-        response = asyncio.run(search_models(q="test"))
-        self.assertEqual(response, {"models": [{"id": "test/model", "downloads": 10}]})
+        http_response = Response()
+        response_data = asyncio.run(search_models(response=http_response, q="test"))
+        self.assertEqual(response_data, {"models": [{"id": "test/model", "downloads": 10}]})
+        self.assertEqual(http_response.headers["Cache-Control"], "no-store, max-age=0")
         mock_search.assert_called_once_with("test", "downloads")
 
     @patch("app.model_manager.get_huggingface_model_details", new_callable=AsyncMock)
@@ -191,9 +195,13 @@ class TestFastAPIPoints(unittest.TestCase):
         mock_details.return_value = {"id": "test/model", "siblings": []}
         mock_readme.return_value = "# Model README"
 
-        response = asyncio.run(get_hf_model_details(repo_id="test/model"))
-        self.assertEqual(response["details"]["id"], "test/model")
-        self.assertEqual(response["readme"], "# Model README")
+        http_response = Response()
+        response_data = asyncio.run(
+            get_hf_model_details(repo_id="test/model", response=http_response)
+        )
+        self.assertEqual(response_data["details"]["id"], "test/model")
+        self.assertEqual(response_data["readme"], "# Model README")
+        self.assertEqual(http_response.headers["Cache-Control"], "no-store, max-age=0")
 
     def test_active_download_endpoint(self):
         from app.main import is_download_active

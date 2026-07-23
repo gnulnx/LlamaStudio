@@ -9,7 +9,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -73,7 +73,7 @@ async def index(request: Request):
             consume_first_launch=True,
         )
     chat_defaults = config_loader.get_chat_defaults()
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         name="index.html",
         context={
@@ -90,6 +90,9 @@ async def index(request: Request):
             "max_tokens": chat_defaults["max_tokens"],
         },
     )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 # ─── Server & Model management ────────────────────────────────
@@ -390,8 +393,10 @@ async def delete_model(request: Request):
 
 
 @app.get("/api/models/search")
-async def search_models(q: str = "", sort: str = "downloads"):
+async def search_models(response: Response, q: str = "", sort: str = "downloads"):
     """Search Hugging Face GGUF models."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     from .model_manager import search_huggingface_models
 
     results = await search_huggingface_models(q, sort)
@@ -399,8 +404,10 @@ async def search_models(q: str = "", sort: str = "downloads"):
 
 
 @app.get("/api/models/hf-details")
-async def get_hf_model_details(repo_id: str):
+async def get_hf_model_details(repo_id: str, response: Response):
     """Get metadata and README content from a Hugging Face repo."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     from .model_manager import get_huggingface_model_details, get_huggingface_model_readme
 
     # Run fetch details and readme concurrently
