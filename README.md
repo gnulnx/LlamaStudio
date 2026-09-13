@@ -254,7 +254,7 @@ load settings, load/eject, and confirmed deletion. Chat supports multiline text,
 saved conversations, streamed Markdown, collapsible reasoning, and tool activity.
 Logs tails the application or inference server, with filtering and follow control.
 
-The header adds a little ASCII llama, the primary GPU, live device-wide VRAM
+The header adds a two-line wordmark, the primary GPU, live device-wide VRAM
 usage, inference state (including CPU/GPU mode), and the active model. NVIDIA
 memory usage refreshes every three seconds; unsupported telemetry is shown as
 unavailable, not zero. Apple unified memory is labeled separately. Narrow or

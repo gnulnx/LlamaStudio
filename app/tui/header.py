@@ -15,9 +15,6 @@ GREEN = "#39d99a"
 MUTED = "#9390ad"
 YELLOW = "#eac86a"
 
-# Plain ASCII: no emoji-width surprises or Nerd Font dependency over SSH.
-LLAMA = "  //\n ('>\n / /____\n/      /\n||----||"
-
 
 def measurement(value: object) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value):
@@ -28,11 +25,9 @@ def measurement(value: object) -> float | None:
 class StudioHeader(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-full"):
-            with Horizontal(id="identity"):
-                yield Static(Text(LLAMA, style=PURPLE), id="llama")
-                with Vertical(id="wordmark"):
-                    yield Static("LlamaStudio TUI", id="brand")
-                    yield Static("Local AI. Your terminal.", id="tagline")
+            with Horizontal(id="identity"), Vertical(id="wordmark"):
+                yield Static("LlamaStudio", id="brand")
+                yield Static("Local AI. Your Terminal.", id="tagline")
             with Horizontal(id="telemetry"):
                 with Vertical(id="gpu-stat", classes="header-stat"):
                     yield Static("PRIMARY GPU", classes="stat-label")
@@ -50,7 +45,7 @@ class StudioHeader(Vertical):
             with Vertical(id="header-meta"):
                 yield Static(f"v{version('llamastudio')}", id="header-version")
                 yield Static("F1 Help", id="header-help")
-        yield Static("LlamaStudio TUI / Connecting...", id="header-summary")
+        yield Static("LlamaStudio / Connecting...", id="header-summary")
 
     def update_status(self, status: dict, gpu: dict, *, connected: bool = True) -> None:
         name = str(gpu.get("name") or "Unavailable")
@@ -105,7 +100,7 @@ class StudioHeader(Vertical):
 
         # Compact terminals keep the model, device, memory, and server state,
         # without the art or card borders taking away working space.
-        summary = Text("LlamaStudio TUI", style=f"bold {PURPLE}")
+        summary = Text("LlamaStudio", style=f"bold {PURPLE}")
         summary.append("  /  ", style=MUTED)
         summary.append(model, style=PURPLE)
         summary.truncate(max(1, self.size.width), overflow="ellipsis")

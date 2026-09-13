@@ -8,8 +8,7 @@ Screen {
     background: #101019;
 }
 #header-full { height: 5; align-vertical: middle; }
-#identity { width: 36; height: 5; align-vertical: middle; }
-#llama { width: 10; height: 5; }
+#identity { width: 28; height: 5; align-vertical: middle; }
 #wordmark { width: 26; height: 3; padding-top: 1; }
 #brand { height: 1; color: #b49aff; text-style: bold; }
 #tagline { height: 1; color: #85829f; text-wrap: nowrap; text-overflow: ellipsis; }
