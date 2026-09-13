@@ -535,6 +535,7 @@ async def switch_conversation(conv_id: str):
                 "audios": [audio.to_dict() for audio in m.audios],
                 "vision_recovery": m.vision_recovery,
                 "metrics": m.metrics,
+                "error": m.error,
             }
             for m in conv.messages
         ],

@@ -46,6 +46,18 @@ class FakeChatStreamResponse:
         yield 'data: {"type":"end"}'
 
 
+class FakeChatErrorStreamResponse(FakeChatStreamResponse):
+    def iter_lines(self):
+        yield 'data: {"type":"start"}'
+        yield (
+            'data: {"type":"error","error":{"title":"Context window exceeded",'
+            '"message":"request (8307 tokens) exceeds the available context size '
+            '(8192 tokens)","hint":"Reload the model with a larger context size.",'
+            '"status_code":400}}'
+        )
+        yield 'data: {"type":"end"}'
+
+
 class TestCliLoadSettings(unittest.TestCase):
     def test_load_saved_model_settings_matches_equivalent_resolved_path(self):
         with patch(
@@ -250,6 +262,20 @@ class TestCliLoadSettings(unittest.TestCase):
         self.assertEqual(payload["message"], "Transcribe this audio.")
         self.assertEqual(payload["audios"], tool_result.audios)
         self.assertIs(payload["enable_thinking"], False)
+
+    def test_oneshot_renders_structured_server_error(self):
+        with (
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+            patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+            patch("app.cli.httpx.stream", return_value=FakeChatErrorStreamResponse()),
+        ):
+            result = CliRunner().invoke(oneshot, ["Inspect the project"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Context window exceeded", result.output)
+        self.assertIn("8307 tokens", result.output)
+        self.assertIn("Reload the model with a larger context size", result.output)
 
     def test_speech_status_reports_local_install_without_desktop_server(self):
         speech_status = {
