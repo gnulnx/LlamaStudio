@@ -210,11 +210,16 @@ class ConfigLoader:
         model_file = Path(model_path)
         name = model_name or existing.get("name") or model_file.stem
         inference = deepcopy(profile_settings.get("inference_settings", {}))
-        load_settings = {
+        # Merge onto the existing load settings instead of replacing them outright, so a
+        # save from a UI/CLI path that only knows about a subset of fields (e.g. the basic
+        # ctx/gpu/threads/flash-attn/kv-cache form) doesn't silently drop fields set another
+        # way (e.g. spec_type, chat_template_kwargs, alias, jinja, fit).
+        load_settings = deepcopy(existing.get("load", {}))
+        load_settings.update({
             key: deepcopy(value)
             for key, value in profile_settings.items()
             if key != "inference_settings"
-        }
+        })
 
         created_at = existing.get("created_at") or updated_at or datetime.now(UTC).isoformat()
         profile_id = existing.get("id") or self._profile_id(model_path, name)
