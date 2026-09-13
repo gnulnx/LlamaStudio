@@ -346,7 +346,8 @@ Install [VHS](https://github.com/charmbracelet/vhs#installation) (tested with
 The tape uses DejaVu Sans Mono. No recording dependencies are added to the app's
 runtime requirements. Allow a few minutes for capture, encoding, and validation.
 
-The tour opens a charcoal terminal, types `lls tui`, browses all four sections,
+The tour opens an edge-to-edge terminal matching the TUI palette's background,
+with three window dots and no outer frame. It types `lls tui`, browses all four sections,
 and requests a short real reply. It waits for Hub results and chat completion;
 network speed and the loaded model affect its duration and content. It never
 loads, ejects, downloads, or changes a model profile. A temporary demo conversation

@@ -7,14 +7,16 @@ Set Height 1080
 Set FontSize 14
 Set FontFamily "DejaVu Sans Mono"
 Set LineHeight 1.2
-Set Padding 18
-Set Margin 18
-Set MarginFill "#17171b"
+# Edge-to-edge TUI, with only the three window dots above it. The recorder reads
+# @BACKGROUND@ from the active palette so the shell and window bar blend in.
+Set Padding 0
+Set Margin 0
+Set MarginFill @BACKGROUND@
 Set WindowBar Colorful
-Set BorderRadius 10
+Set BorderRadius 0
 Set Framerate 30
 Set TypingSpeed 45ms
-Set Theme {"name":"Studio Charcoal","background":"#202024","foreground":"#e4e4ed","selection":"#454052","cursor":"#a78bfa","black":"#202024","red":"#f87171","green":"#22c55e","yellow":"#eab308","blue":"#8b5cf6","magenta":"#9d6bff","cyan":"#2dd4bf","white":"#e4e4ed","brightBlack":"#717199","brightRed":"#fca5a5","brightGreen":"#4ade80","brightYellow":"#fde047","brightBlue":"#b794f6","brightMagenta":"#c4b5fd","brightCyan":"#5eead4","brightWhite":"#ffffff"}
+Set Theme {"name":"Studio Seamless","background":@BACKGROUND@,"foreground":"#e4e4ed","selection":"#454052","cursor":"#a78bfa","black":@BACKGROUND@,"red":"#f87171","green":"#22c55e","yellow":"#eab308","blue":"#8b5cf6","magenta":"#9d6bff","cyan":"#2dd4bf","white":"#e4e4ed","brightBlack":"#717199","brightRed":"#fca5a5","brightGreen":"#4ade80","brightYellow":"#fde047","brightBlue":"#b794f6","brightMagenta":"#c4b5fd","brightCyan":"#5eead4","brightWhite":"#ffffff"}
 
 Hide
 Type@1ms @SETUP@

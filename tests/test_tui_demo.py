@@ -26,7 +26,7 @@ from app.tui.demo import (
 
 
 def test_packaged_tape_uses_live_cli_and_all_sections():
-    tape = render_tape(Path("/workspace/clip.mp4"), Path("/workspace/poster.png"), None)
+    tape = render_tape(Path("/workspace/clip.mp4"), Path("/workspace/poster.png"), None, "#090914")
     assert 'Type@120ms "lls tui"' in tape
     assert "LOAD SETTINGS" in tape
     assert "Saved conversation . ready" in tape
@@ -40,12 +40,30 @@ def test_packaged_tape_uses_live_cli_and_all_sections():
 
 
 def test_palette_paths_are_quoted_for_both_shell_and_vhs():
-    tape = render_tape(Path("/workspace/a b.mp4"), Path("poster.png"), Path("/workspace/a b.json"))
+    tape = render_tape(
+        Path("/workspace/a b.mp4"), Path("poster.png"), Path("/workspace/a b.json"), "#182036"
+    )
     assert 'Output "/workspace/a b.mp4"' in tape
     assert "Type@120ms \"lls tui --palette '/workspace/a b.json'\"" in tape
     for invalid in ("x\nEnter", "x\rEnter", "x\0", "\"'`"):
         with pytest.raises(DemoError):
             tape_quote(invalid)
+
+
+@pytest.mark.parametrize("background", ["#090914", "#182036"])
+def test_terminal_chrome_blends_into_the_selected_palette(background):
+    tape = render_tape(Path("clip.mp4"), Path("poster.png"), None, background)
+    theme_line = next(line for line in tape.splitlines() if line.startswith("Set Theme "))
+    theme = json.loads(theme_line.removeprefix("Set Theme "))
+    assert theme["background"] == theme["black"] == background
+    assert f'Set MarginFill "{background}"' in tape
+    for setting in (
+        "Set Margin 0",
+        "Set Padding 0",
+        "Set BorderRadius 0",
+        "Set WindowBar Colorful",
+    ):
+        assert setting in tape.splitlines()
 
 
 class ChatBackend:

@@ -46,7 +46,7 @@ def tape_quote(value: str) -> str:
     raise DemoError("Recording paths cannot contain newlines or all three quote characters.")
 
 
-def render_tape(video: Path, poster: Path, palette: Path | None) -> str:
+def render_tape(video: Path, poster: Path, palette: Path | None, background: str) -> str:
     # The shell-local function uses the invoking installation, even when a different
     # lls is first on PATH. It does not change the user's shell, aliases or history.
     setup = (
@@ -59,6 +59,7 @@ def render_tape(video: Path, poster: Path, palette: Path | None) -> str:
         "@POSTER@": str(poster),
         "@SETUP@": setup,
         "@COMMAND@": command,
+        "@BACKGROUND@": background,
     }
     tape = files("app.tui").joinpath("demo.tape").read_text(encoding="utf-8")
     for token, value in replacements.items():
@@ -191,7 +192,7 @@ def record_demo(base_url: str, output: str, palette: str | None = None) -> DemoR
         raise DemoError("Use an .mp4 output filename.")
     poster = check_path_safe(str(target.with_name(f"{target.stem}-poster.png")))
     preview = check_path_safe(str(target.with_suffix(".gif")))
-    load_palette(palette)  # Fail before any chat state or output is touched.
+    colors = load_palette(palette)  # Fail before any chat state or output is touched.
     palette_path = check_path_safe(palette) if palette else None
     missing = [
         name for name in ("vhs", "ffmpeg", "ffprobe", "ttyd", "bash") if not shutil.which(name)
@@ -224,7 +225,9 @@ def record_demo(base_url: str, output: str, palette: str | None = None) -> DemoR
                 thumbnail = temporary / "poster.png"
                 animation = temporary / "preview.gif"
                 tape = temporary / "demo.tape"
-                tape.write_text(render_tape(raw, thumbnail, palette_path), encoding="utf-8")
+                tape.write_text(
+                    render_tape(raw, thumbnail, palette_path, colors.background), encoding="utf-8"
+                )
                 run_tool(["vhs", "validate", str(tape)], env=env, timeout=30)
                 with demo_conversation(client):
                     run_tool(["vhs", str(tape)], env=env)
