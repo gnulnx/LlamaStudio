@@ -622,7 +622,23 @@ def oneshot(prompt, model, **kwargs):
 
                     # Handle error event
                     if data.get("error"):
-                        console.print(f"\n[bold red]Server Error: {data['error']}[/bold red]")
+                        error = data["error"]
+                        if isinstance(error, dict):
+                            title = error.get("title") or "Model request failed"
+                            message = error.get("message") or "Unknown model server error."
+                            hint = error.get("hint")
+                            body = f"[bold]{message}[/bold]"
+                            if hint:
+                                body += f"\n\n[dim]{hint}[/dim]"
+                            console.print(
+                                Panel(
+                                    body,
+                                    title=f"[bold red]{title}[/bold red]",
+                                    border_style="red",
+                                )
+                            )
+                        else:
+                            console.print(f"\n[bold red]Server Error: {error}[/bold red]")
                         break
 
                     if data.get("type") == "start":

@@ -544,6 +544,50 @@
             display: block;
         }
 
+        .chat-error-card {
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr);
+            gap: 12px;
+            padding: 14px;
+            border: 1px solid rgba(231, 76, 60, 0.45);
+            border-radius: 10px;
+            background: rgba(231, 76, 60, 0.08);
+            box-shadow: 0 0 18px rgba(231, 76, 60, 0.08);
+        }
+
+        .chat-error-icon {
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9px;
+            color: var(--status-red);
+            background: rgba(231, 76, 60, 0.14);
+            font-size: 15px;
+        }
+
+        .chat-error-title {
+            color: #ff8b80;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.4;
+        }
+
+        .chat-error-message {
+            margin-top: 3px;
+            color: var(--text-primary);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .chat-error-hint {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
         .response-metrics {
             display: flex;
             align-items: center;
@@ -3370,6 +3414,25 @@
         return `<div class="response-metrics"${title}>${parts.map((part, index) => `${index ? '<span class="metric-separator">·</span>' : ''}<span>${escapeHtml(part)}</span>`).join('')}</div>`;
     }
 
+    function renderChatError(error) {
+        const details = typeof error === 'string' ? { message: error } : (error || {});
+        const title = details.title || 'Model request failed';
+        const message = details.message || 'The model server could not complete this turn.';
+        const hint = details.hint
+            ? `<div class="chat-error-hint"><i class="fa-regular fa-lightbulb"></i> ${escapeHtml(details.hint)}</div>`
+            : '';
+        return `
+            <div class="chat-error-card" role="alert">
+                <div class="chat-error-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div>
+                    <div class="chat-error-title">${escapeHtml(title)}</div>
+                    <div class="chat-error-message">${escapeHtml(message)}</div>
+                    ${hint}
+                </div>
+            </div>
+        `;
+    }
+
     function renderStreamBlocks(container, blocks) {
         let html = '';
         for (const b of blocks) {
@@ -3390,6 +3453,8 @@
                 html += renderVisionRecovery(b.message, b.recovery);
             } else if (b.type === 'audio_error') {
                 html += `<div style="color:var(--status-red); font-weight:600;"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(b.message || 'Audio input is not available for this model.')}</div>`;
+            } else if (b.type === 'error') {
+                html += renderChatError(b.error);
             } else if (b.type === 'metrics') {
                 html += renderResponseMetrics(b.metrics);
             } else if (b.type === 'tool') {
@@ -3494,7 +3559,9 @@
                         `;
                     }
                     
-                    if (msg.vision_recovery) {
+                    if (msg.error) {
+                        assistantHtml += renderChatError(msg.error);
+                    } else if (msg.vision_recovery) {
                         assistantHtml += renderVisionRecovery(textContent, msg.vision_recovery);
                     } else if (textContent) {
                         assistantHtml += marked.parse(textContent);
@@ -4273,7 +4340,8 @@
                     try {
                         const data = JSON.parse(dataStr);
                         if (data.error) {
-                            assistDiv.querySelector('.msg-body').innerHTML = `<div style="color:var(--status-red); font-weight:600;"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(data.error)}</div>`;
+                            streamBlocks.push({ type: 'error', error: data.error });
+                            renderStreamBlocks(assistDiv, streamBlocks);
                             break;
                         }
 

@@ -12,7 +12,7 @@ import httpx
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.chat import MAX_TOOL_RESULT_CHARS, AudioAttachment, ImageAttachment, chat
+from app.chat import MAX_TOOL_RESULT_CHARS, AudioAttachment, ImageAttachment, Message, chat
 from app.tools import ToolResult
 
 
@@ -172,6 +172,33 @@ class FakeReadTimeoutHttpClient:
         raise httpx.ReadTimeout("timed out")
 
 
+class FakeContextErrorResponse:
+    status_code = 400
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps({
+            "error": {
+                "code": 400,
+                "message": (
+                    "request (8307 tokens) exceeds the available context size "
+                    "(8192 tokens), try increasing it"
+                ),
+                "type": "server_error",
+            }
+        }).encode()
+
+
+class FakeContextErrorHttpClient(FakeHttpClient):
+    def stream(self, method, url, json):
+        return FakeContextErrorResponse()
+
+
 class TestChatStreaming(unittest.TestCase):
     @staticmethod
     def image_attachment():
@@ -278,6 +305,60 @@ class TestChatStreaming(unittest.TestCase):
         self.assertIsNotNone(conv)
         self.assertEqual(conv.messages[-1].role, "assistant")
         self.assertIn("Timed out waiting for llama-server", conv.messages[-1].content)
+
+    def test_server_error_is_structured_and_persisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()
+                ),
+                patch("app.chat.httpx.Client", FakeContextErrorHttpClient),
+            ):
+                events = list(chat.stream_chat("inspect the project"))
+                conv = chat.get_active()
+                saved = json.loads(Path(conversation_path).read_text())
+
+        error_event = next(json.loads(event[6:]) for event in events if '"error"' in event)
+        self.assertEqual(error_event["type"], "error")
+        self.assertEqual(error_event["error"]["title"], "Context window exceeded")
+        self.assertIn("8,307 tokens", error_event["error"]["hint"])
+        self.assertIsNotNone(conv)
+        self.assertEqual(conv.messages[-1].error, error_event["error"])
+        saved_messages = next(iter(saved["conversations"].values()))["messages"]
+        self.assertEqual(saved_messages[-1]["error"], error_event["error"])
+
+    def test_persisted_server_error_is_not_sent_back_to_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conversation_path = str(Path(tmp) / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+            CapturingHttpClient.payloads = []
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults", return_value=self.chat_defaults()
+                ),
+                patch("app.chat.httpx.Client", CapturingHttpClient),
+            ):
+                conv = chat.get_active()
+                conv.messages.append(
+                    Message(
+                        role="assistant",
+                        error={"title": "Previous error", "message": "Do not send me"},
+                    )
+                )
+                list(chat.stream_chat("try again"))
+
+        sent_messages = CapturingHttpClient.payloads[0]["messages"]
+        self.assertFalse(
+            any(message.get("content") == "Do not send me" for message in sent_messages)
+        )
 
     def test_direct_image_is_sent_as_image_url_content_not_tokenized_text(self):
         with tempfile.TemporaryDirectory() as tmp:
