@@ -8,6 +8,14 @@ A desktop chat interface and local server manager for `llama.cpp`, crafted with 
 
 ## 📸 Screenshots & Showcase
 
+### Terminal tour
+
+[![Watch the LlamaStudio terminal tour](imgs/tui/demo.gif)](imgs/tui/demo.mp4)
+
+[Watch the MP4](imgs/tui/demo.mp4): `lls tui`, then Discover, Models, a live chat,
+and inference logs—all using an already loaded model.
+[Regenerate the recording](#recording-the-demo) after changing the palette.
+
 ### 1. Main Chat Dashboard
 A Pop!_OS-harmonized dark interface with streaming, collapsible markdown reasoning (thinking) processes, and real-time agentic tool execution logs.
 ![Main Chat Dashboard](imgs/chat_interface.png)
@@ -315,6 +323,46 @@ lls tui --view models --screenshot .runtime/tui/models.svg --size 80x24
 
 Screenshots must be new `.svg` files within the configured workspace. They contain
 the live backend's data; use an appropriate conversation before sharing chat captures.
+
+#### Recording the demo
+
+From the checkout, with the backend running and a model already loaded:
+
+```bash
+lls status
+lls demo-tui
+# Optional palette experiment and separate output:
+lls demo-tui --palette colors.json --output imgs/tui/experiment.mp4
+```
+
+The reproducible script is [app/tui/demo.tape](app/tui/demo.tape); edit its pauses,
+typing, and navigation to adjust the tour. The command uses the current TUI and
+palette—not canned screens—and produces `imgs/tui/demo.mp4`, a still
+`imgs/tui/demo-poster.png`, and `imgs/tui/demo.gif`. The lightweight README
+animation links to the full-quality MP4.
+
+Install [VHS](https://github.com/charmbracelet/vhs#installation) (tested with
+**0.11.0**), `ttyd`, FFmpeg (including `ffprobe`), Bash, and Chrome/Chromium.
+The tape uses DejaVu Sans Mono. No recording dependencies are added to the app's
+runtime requirements. Allow a few minutes for capture, encoding, and validation.
+
+The tour opens a charcoal terminal, types `lls tui`, browses all four sections,
+and requests a short real reply. It waits for Hub results and chat completion;
+network speed and the loaded model affect its duration and content. It never
+loads, ejects, downloads, or changes a model profile. A temporary demo conversation
+is created and deleted afterward; the previously active conversation is restored
+unless you switched it elsewhere. Keep other clients idle during recording.
+
+**Review before publishing:** real conversation titles, model names, filesystem
+paths, and logs can appear in the video. This is a live capture, not an anonymizer.
+The recorder enables true color only in its child environment, preserves shell
+history, and exports 1920×1080 H.264/yuv420p with fast-start playback. The GIF is a
+960×540, 3 fps, 96-color looping preview, kept below 10,000,000 bytes for
+[GitHub's image limit](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files).
+All outputs are staged; the MP4 passes metadata and full-decode checks and
+the GIF passes a full-decode check before replacing the previous recording.
+Changing the palette and rerunning the same command refreshes the demo without
+hand-editing the video.
 
 ## ⚙️ Configuration & Customization
 
