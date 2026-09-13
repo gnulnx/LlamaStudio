@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
 import httpx
 from textual.widgets import Button, DataTable, Input, Markdown, Select, Static
@@ -245,6 +247,63 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             await pilot.press("down", "enter")
             await self.settle(pilot)
             self.assertEqual(self.app.query_one("#hub-sort", Select).value, "downloads")
+
+    async def test_palette_reload_updates_css_and_rich_colors_without_resetting_state(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            self.app.query_one("#hub-quant", Select).value = "tiny-00001-of-00002.gguf"
+            await pilot.press("f4")
+            await self.settle(pilot)
+            editor = self.app.query_one("#chat-input", Composer)
+            editor.load_text("Keep my unfinished draft")
+            conversation = self.app.query_one(ChatView).conversation_id
+            old = self.app.palette
+            updated = replace(
+                old, background="#080810", surface="#19192f", success="#33ee88", warning="#ffcc33"
+            )
+            calls_before = list(self.backend.calls)
+            with patch("app.tui.application.load_palette", return_value=updated):
+                await pilot.press("ctrl+p")
+                await pilot.pause()
+            self.assertIs(self.app.palette, updated)
+            self.assertEqual(self.app.screen.styles.background.hex.lower(), updated.background)
+            self.assertEqual(editor.styles.background.hex.lower(), updated.surface)
+            self.assertEqual(editor.text, "Keep my unfinished draft")
+            self.assertEqual(self.app.current_view, "chat")
+            self.assertEqual(self.app.query_one(ChatView).conversation_id, conversation)
+            self.assertEqual(
+                self.app.query_one("#hub-quant", Select).value, "tiny-00001-of-00002.gguf"
+            )
+            badge = self.app.query_one("#hub-table", DataTable).get_cell_at((0, 4))
+            self.assertTrue(any(updated.warning in span.style for span in badge.spans))
+            state_colors = [
+                segment.style.color.name
+                for segment in self.app.query_one("#connection").render_line(0)
+                if segment.style and segment.style.color
+            ]
+            self.assertIn(updated.success, state_colors)
+            # Only normal status polling may have made HTTP requests during repaint.
+            for method, path, _, _ in self.backend.calls[len(calls_before) :]:
+                self.assertEqual(method, "GET")
+                self.assertIn(
+                    path, ("/api/server/status", "/api/gpu", "/api/models/download/active")
+                )
+
+    async def test_invalid_palette_reload_keeps_last_good_colors_and_open_dialog(self):
+        async with self.app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("f1")
+            dialog = self.app.screen
+            original = self.app.palette
+            with (
+                patch("app.tui.application.load_palette", side_effect=ValueError("bad color")),
+                patch.object(self.app, "notify") as notify,
+            ):
+                await pilot.press("ctrl+p")
+                await pilot.pause()
+            self.assertIs(self.app.palette, original)
+            self.assertIs(self.app.screen, dialog)
+            self.assertIn("Palette unchanged: bad color", notify.call_args.args[0])
 
     async def test_download_requires_confirmation_and_survives_navigation(self):
         async with self.app.run_test(size=(180, 48)) as pilot:

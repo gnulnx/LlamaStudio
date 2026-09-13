@@ -20,6 +20,7 @@ from rich.table import Table
 
 from app.tools import check_path_safe
 from app.tui.application import StudioApp
+from app.tui.palette import load_palette
 
 # Configure rich-click visual styling to match a premium terminal theme
 click.rich_click.USE_RICH_MARKUP = True
@@ -169,6 +170,11 @@ def cli():
 )
 @click.option("--no-start", is_flag=True, help="Require an already running LlamaStudio backend.")
 @click.option(
+    "--palette",
+    type=click.Path(dir_okay=False),
+    help="Override TUI colors with a workspace JSON palette. Ctrl+P reloads it.",
+)
+@click.option(
     "--screenshot",
     type=click.Path(dir_okay=False),
     help="Capture the real TUI to a workspace SVG and exit (no terminal required).",
@@ -176,7 +182,7 @@ def cli():
 @click.option(
     "--size", default="180x48", show_default=True, help="Screenshot size in columns x rows."
 )
-def tui(view: str, no_start: bool, screenshot: str | None, size: str) -> None:
+def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: str | None) -> None:
     """Open LlamaStudio's interactive terminal interface. Quitting keeps the backend running."""
     target = None
     if screenshot:
@@ -200,6 +206,10 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str) -> None:
         raise click.BadParameter(
             "Use columns x rows, e.g. 180x48 (40-400 columns, 15-150 rows).", param_hint="--size"
         ) from exc
+    try:
+        colors = load_palette(palette)
+    except (OSError, ValueError) as exc:
+        raise click.BadParameter(str(exc), param_hint="--palette") from exc
     if is_server_online():
         if not wait_for_server_ready(timeout=3):
             raise click.ClickException(
@@ -213,7 +223,7 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str) -> None:
         config_loader.initialize_for_launch(Path.cwd())
         if not start_server_background(open_browser=False):
             raise click.ClickException("Could not start the LlamaStudio backend.")
-    application = StudioApp(API_BASE_URL, initial_view=view)
+    application = StudioApp(API_BASE_URL, initial_view=view, palette_path=palette, palette=colors)
     if target:
         target.parent.mkdir(parents=True, exist_ok=True)
         asyncio.run(application.capture(str(target), (columns, rows)))

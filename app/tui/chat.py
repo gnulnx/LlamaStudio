@@ -38,7 +38,9 @@ class MessageCard(Vertical):
         if kind != self.last_kind or self.last_markdown is None:
             markdown = Markdown("", open_links=False)
             if kind == "reasoning":
-                self.reasoning_box = Collapsible(markdown, title="Reasoning", collapsed=False)
+                self.reasoning_box = Collapsible(
+                    markdown, title="Reasoning", collapsed=False, classes="reasoning-activity"
+                )
                 await self.mount(self.reasoning_box)
             else:
                 if self.reasoning_box is not None:
@@ -58,7 +60,11 @@ class MessageCard(Vertical):
         )
         if result is not None:
             text += f"\n\nResult\n{result}"
-        await self.mount(Collapsible(Static(Text(text)), title=f"Tool / {name}", collapsed=True))
+        await self.mount(
+            Collapsible(
+                Static(Text(text)), title=f"Tool / {name}", collapsed=True, classes="tool-activity"
+            )
+        )
 
 
 class ChatView(StudioView):

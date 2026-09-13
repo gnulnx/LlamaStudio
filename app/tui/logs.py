@@ -69,11 +69,11 @@ class LogsView(StudioView):
         output.clear()
         for line in lines:
             color = (
-                "#f28b9b"
+                self.app.palette.error
                 if "error" in line.casefold()
-                else "#eac86a"
+                else self.app.palette.warning
                 if "warn" in line.casefold()
-                else "#bbb9d8"
+                else self.app.palette.text
             )
             output.write(Text(line, style=color), scroll_end=following)
         if not lines:

@@ -130,7 +130,9 @@ class ModelsView(StudioView):
                 (table.get_row_index(key), 2),
                 Text(
                     "Loaded" if key.value == current and running else "Ready",
-                    style="#39d99a" if key.value == current and running else "#9693b5",
+                    style=self.app.palette.success
+                    if key.value == current and running
+                    else self.app.palette.muted,
                 ),
             )
         for name in ("load", "save", "delete"):

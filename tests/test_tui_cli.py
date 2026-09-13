@@ -92,6 +92,34 @@ class TestTuiCommand(unittest.TestCase):
         safe.assert_called_once_with("../outside.svg")
         self.assertIn("outside workspace", result.output)
 
+    def test_custom_palette_reaches_app_and_is_loaded_before_backend_start(self):
+        with (
+            self.terminal(),
+            patch("app.cli.load_palette") as palette,
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.wait_for_server_ready", return_value=True),
+            patch("app.cli.StudioApp") as application,
+        ):
+            result = CliRunner().invoke(cli, ["tui", "--palette", "colors.json"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        palette.assert_called_once_with("colors.json")
+        self.assertEqual(application.call_args.kwargs["palette_path"], "colors.json")
+        self.assertIs(application.call_args.kwargs["palette"], palette.return_value)
+
+    def test_invalid_palette_fails_without_starting_backend(self):
+        for error in (ValueError("unknown color role"), OSError("cannot read palette")):
+            with (
+                self.subTest(error=error),
+                self.terminal(),
+                patch("app.cli.load_palette", side_effect=error),
+                patch("app.cli.start_server_background") as start,
+            ):
+                result = CliRunner().invoke(cli, ["tui", "--palette", "colors.json"])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("--palette", result.output)
+            self.assertIn(str(error), result.output)
+            start.assert_not_called()
+
 
 class TestStatusMemory(unittest.TestCase):
     def test_status_handles_measured_unknown_and_legacy_memory(self):

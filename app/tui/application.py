@@ -11,7 +11,6 @@ from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.theme import Theme
 from textual.widgets import Button, ContentSwitcher, Footer, Markdown, ProgressBar, Static
 
 from .chat import ChatView
@@ -20,6 +19,7 @@ from .discover import DiscoverView
 from .header import StudioHeader
 from .logs import LogsView
 from .models import ModelsView
+from .palette import Palette, load_palette
 from .widgets import Confirm, Help, StudioView
 
 
@@ -34,15 +34,24 @@ class StudioApp(App[None]):
         Binding("f4", "view('chat')", "Chat", show=False),
         Binding("f5", "view('logs')", "Logs", show=False),
         Binding("ctrl+r", "refresh", "Refresh", priority=True),
+        Binding("ctrl+p", "reload_palette", "Palette", show=False, priority=True),
         Binding("ctrl+n", "new_chat", "New chat", show=False),
         Binding("escape", "back", "Back", show=False),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     def __init__(
-        self, base_url: str, *, initial_view: str = "discover", client: StudioClient | None = None
+        self,
+        base_url: str,
+        *,
+        initial_view: str = "discover",
+        client: StudioClient | None = None,
+        palette_path: str | None = None,
+        palette: Palette | None = None,
     ):
         super().__init__()
+        self.palette_path = palette_path
+        self.palette = palette or load_palette(palette_path)
         self.client = client or StudioClient(base_url)
         self.base_url = base_url
         self.current_view = initial_view
@@ -53,23 +62,28 @@ class StudioApp(App[None]):
         self.connected = False
         self._last_download_state = "idle"
         self._views: dict[str, StudioView] = {}
-        self.register_theme(
-            Theme(
-                name="llamastudio",
-                primary="#8b5cf6",
-                secondary="#b49aff",
-                accent="#a78bfa",
-                foreground="#c9c5e4",
-                background="#101019",
-                surface="#151521",
-                panel="#191825",
-                success="#39d99a",
-                warning="#eac86a",
-                error="#f28b9b",
-                dark=True,
-            )
-        )
+        self.register_theme(self.palette.theme())
         self.theme = "llamastudio"
+
+    def action_reload_palette(self) -> None:
+        try:
+            palette = load_palette(self.palette_path)
+        except (OSError, ValueError) as exc:
+            self.notify(f"Palette unchanged: {exc}", severity="error", timeout=10)
+            return
+        self.palette = palette
+        self.register_theme(palette.theme())
+        self.refresh_css(animate=False)
+        self.update_header()
+        # CSS updates existing widgets. Only pre-styled Rich text needs repainting;
+        # do not rebuild tables or refetch data while someone is editing a draft.
+        self._views["discover"].refresh_palette()
+        self._views["models"].update_status()
+        logs = self._views["logs"]
+        if logs.loaded:
+            logs.last_render = None
+            logs.render_log_tail()
+        self.notify("Palette reloaded", timeout=2)
 
     def compose(self) -> ComposeResult:
         yield StudioHeader(id="masthead")

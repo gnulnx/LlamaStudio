@@ -10,11 +10,6 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-PURPLE = "#b49aff"
-GREEN = "#39d99a"
-MUTED = "#9390ad"
-YELLOW = "#eac86a"
-
 
 def measurement(value: object) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value):
@@ -48,6 +43,7 @@ class StudioHeader(Vertical):
         yield Static("LlamaStudio / Connecting...", id="header-summary")
 
     def update_status(self, status: dict, gpu: dict, *, connected: bool = True) -> None:
+        palette = self.app.palette
         name = str(gpu.get("name") or "Unavailable")
         total = measurement(gpu.get("total_vram"))
         used = measurement(gpu.get("used_vram"))
@@ -64,8 +60,8 @@ class StudioHeader(Vertical):
             fraction = used / total
             memory = f"{used:.1f} / {total:.1f} GiB ({fraction:.0%})"
             filled = round(fraction * 24)
-            bar = Text("━" * filled, style=PURPLE)
-            bar.append("━" * (24 - filled), style="#37304f")
+            bar = Text("━" * filled, style=palette.warning if fraction >= 0.9 else palette.teal)
+            bar.append("━" * (24 - filled), style=palette.border_muted)
         else:
             memory = f"{total:.1f} GiB / usage N/A" if total is not None else "Unavailable"
             bar = Text("")
@@ -74,20 +70,22 @@ class StudioHeader(Vertical):
         cpu = params.get("cpu_mode") or params.get("gpu_layers") == 0
         mode = "CPU" if cpu else "GPU" if params.get("gpu_layers") is not None else ""
         if not connected:
-            state, color, model = "Backend unavailable", YELLOW, "Unavailable"
+            state, color, model = "Backend unavailable", palette.warning, "Unavailable"
         elif status.get("is_loading"):
-            state, color = "Loading...", YELLOW
+            state, color = "Loading...", palette.warning
             model = str(status.get("current_model_name") or "Loading model...")
         elif status.get("running"):
-            state, color = "Running" + (f" / {mode}" if mode else ""), GREEN
+            state, color = "Running" + (f" / {mode}" if mode else ""), palette.success
             model = str(status.get("current_model_name") or "Loaded model")
         else:
-            state, color, model = "Stopped", MUTED, "No model loaded"
+            state, color, model = "Stopped", palette.muted, "No model loaded"
 
-        self.query_one("#gpu-name", Static).update(Text(name, style=GREEN if gpu else MUTED))
+        self.query_one("#gpu-name", Static).update(
+            Text(name, style=palette.success if gpu else palette.muted)
+        )
         self.query_one("#gpu-name").tooltip = f"Primary detected device: {name}"
         self.query_one("#memory-label", Static).update(memory_label)
-        self.query_one("#memory-value", Static).update(Text(memory, style=PURPLE))
+        self.query_one("#memory-value", Static).update(Text(memory, style=palette.teal))
         self.query_one("#memory-bar", Static).update(bar)
         self.query_one("#memory-stat").tooltip = (
             "Shared system memory capacity; GPU usage is not reported."
@@ -95,22 +93,22 @@ class StudioHeader(Vertical):
             else "Device-wide memory usage, including other applications. Refreshed every 3 seconds."
         )
         self.query_one("#connection", Static).update(Text(state, style=color))
-        self.query_one("#active-model", Static).update(Text(model, style=PURPLE))
+        self.query_one("#active-model", Static).update(Text(model, style=palette.accent))
         self.query_one("#active-model").tooltip = model
 
         # Compact terminals keep the model, device, memory, and server state,
-        # without the art or card borders taking away working space.
-        summary = Text("LlamaStudio", style=f"bold {PURPLE}")
-        summary.append("  /  ", style=MUTED)
-        summary.append(model, style=PURPLE)
+        # without card borders taking away working space.
+        summary = Text("LlamaStudio", style=f"bold {palette.accent}")
+        summary.append("  /  ", style=palette.muted)
+        summary.append(model, style=palette.accent)
         summary.truncate(max(1, self.size.width), overflow="ellipsis")
         summary.append("\n")
         short_name = name.removeprefix("NVIDIA GeForce ")
-        device = Text(short_name, style=GREEN if gpu else MUTED)
+        device = Text(short_name, style=palette.success if gpu else palette.muted)
         device.truncate(
             max(8, self.size.width - len(memory) - len(state) - 12), overflow="ellipsis"
         )
         summary.append_text(device)
-        summary.append(f"  |  {'RAM' if unified else 'VRAM'} {memory}  |  ", style=MUTED)
+        summary.append(f"  |  {'RAM' if unified else 'VRAM'} {memory}  |  ", style=palette.muted)
         summary.append(state, style=color)
         self.query_one("#header-summary", Static).update(summary)

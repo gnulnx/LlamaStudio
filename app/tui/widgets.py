@@ -132,6 +132,7 @@ class Help(ModalScreen[None]):
                     "| Enter / Space | Activate the focused control |\n"
                     "| Escape | Back from details on a small screen |\n"
                     "| Ctrl+R | Refresh the current section |\n"
+                    "| Ctrl+P | Reload the color palette without restarting |\n"
                     "| Ctrl+N | New conversation (in Chat) |\n"
                     "| Ctrl+S | Send a chat message |\n"
                     "| Enter (chat editor) | New line |\n"

@@ -24,22 +24,23 @@ from textual.widgets import (
     TabPane,
 )
 
+from .palette import Palette
 from .widgets import Confirm, LibraryTable, StudioView, size_label
 
 
-def capabilities(model: dict[str, Any]) -> Text:
+def capabilities(model: dict[str, Any], palette: Palette) -> Text:
     tags = set(model.get("tags") or [])
     pipeline = model.get("pipeline_tag") or ""
     badges = Text()
     for enabled, label, color in (
-        (bool(tags & {"vision", "multimodal"}) or "image" in pipeline, "Vision", "#b49aff"),
-        ("reasoning" in tags, "Reasoning", "#39d99a"),
-        (bool(tags & {"tools", "tool-use", "function-calling"}), "Tools", "#eac86a"),
+        (bool(tags & {"vision", "multimodal"}) or "image" in pipeline, "Vision", palette.warning),
+        ("reasoning" in tags, "Reasoning", palette.teal),
+        (bool(tags & {"tools", "tool-use", "function-calling"}), "Tools", palette.warning),
     ):
         if enabled:
-            badges.append(f" {label} ", style=f"{color} on #211c35")
+            badges.append(f" {label} ", style=f"bold {color} on {palette.surface}")
             badges.append(" ")
-    return badges if badges else Text("Text", style="#9693b5")
+    return badges if badges else Text(" Text ", style=f"{palette.muted} on {palette.surface}")
 
 
 class DiscoverView(StudioView):
@@ -64,7 +65,12 @@ class DiscoverView(StudioView):
                 )
                 yield Button("Search", id="hub-search", variant="primary")
             yield Static("Discover models on Hugging Face", id="hub-summary", classes="muted")
-            yield LibraryTable(id="hub-table", cursor_type="row", zebra_stripes=True)
+            yield LibraryTable(
+                id="hub-table",
+                cursor_type="row",
+                zebra_stripes=True,
+                cursor_foreground_priority="renderable",
+            )
             yield Static("Arrows Navigate   Enter Details   Tab Next control", classes="list-hint")
         with VerticalScroll(classes="detail panel", can_focus=True):
             yield Button("Back to results", id="hub-back", classes="back")
@@ -155,10 +161,20 @@ class DiscoverView(StudioView):
                 )
             row.extend([f"{model.get('downloads', 0):,}", f"{model.get('likes', 0):,}"])
             if width >= 185:
-                row.append(capabilities(model))
+                row.append(capabilities(model, self.app.palette))
             table.add_row(*row, key=repo, height=2 if self.app.size.height >= 35 else 1)
         if self.repo_id in {key.value for key in table.rows}:
             table.move_cursor(row=table.get_row_index(self.repo_id))
+
+    def refresh_palette(self) -> None:
+        table = self.query_one("#hub-table", DataTable)
+        if len(table.columns) < 5:
+            return  # The capabilities column is hidden in smaller terminals.
+        for model in self.models:
+            if model["id"] in table.rows:
+                table.update_cell_at(
+                    (table.get_row_index(model["id"]), 4), capabilities(model, self.app.palette)
+                )
 
     @on(DataTable.RowHighlighted, "#hub-table")
     def highlighted(self, event: DataTable.RowHighlighted) -> None:
