@@ -185,6 +185,7 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | Command | Usage | Description |
 | :--- | :--- | :--- |
 | `start` | `lls start` | Starts the desktop app and opens the browser to the right first-run/chat/models/discover view. |
+| `tui` | `lls tui [--view discover\|models\|chat\|logs]` | Interactive terminal interface with mouse, keyboard, and adaptive layouts. Starts the backend without opening a browser when needed. |
 | `reload` | `lls reload` | Gracefully restarts the desktop FastAPI application backend. |
 | `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
@@ -235,6 +236,56 @@ Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
 
 ---
 
+### Terminal interface
+
+![LlamaStudio TUI Discover with live Hugging Face results](imgs/tui/discover.png)
+
+```bash
+lls tui
+lls tui --view chat
+lls tui --no-start     # Connect only; fail if the backend is offline
+```
+
+The TUI shares the web app's backend, model profiles, downloads, and saved
+conversations. Closing it leaves the backend and loaded model running. Discover
+supports Hugging Face search, sorting, README/details/files, GGUF selection,
+download progress, and cancellation. Models provides filtering, rescan, saved
+load settings, load/eject, and confirmed deletion. Chat supports multiline text,
+saved conversations, streamed Markdown, collapsible reasoning, and tool activity.
+Logs tails the application or inference server, with filtering and follow control.
+
+Use F2–F5 to switch sections, Tab/Shift+Tab to move between controls, arrows and
+Enter to select, and F1 for help. In chat, Enter inserts a newline and Ctrl+S sends.
+Ctrl+R refreshes; Ctrl+Q quits. Every workflow also has mouse controls. In terminal
+multiplexers, forward shortcuts to the application (for example, use zellij's
+locked mode if its bindings intercept Ctrl+S). On macOS you may need Fn with
+function keys, or use the navigation buttons.
+
+Layouts adapt from a navigation rail and side-by-side panels to a navigation bar
+and separate list/detail views below 110 columns. An 80×24 terminal is supported;
+larger windows show more columns and model information. No Nerd Font, terminal
+image extension, or graphics protocol is needed. Standard terminal colors are
+used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
+`lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
+The backend's filesystem and GPU are the ones shown in the TUI.
+
+This first version handles text chat; media input remains in the web app. Split
+GGUF shards are identified but not offered as individual model downloads: fetch
+the complete set from the linked Hub repository. Memory bars compare GGUF weight
+bytes with reported GPU/unified memory, **not** guaranteed load capacity; context
+cache and runtime allocations need additional memory. The backend still shares
+one active conversation, so avoid sending simultaneously from the web app and TUI.
+
+Capture the real interface for visual review without a terminal:
+
+```bash
+lls tui --screenshot .runtime/tui/discover.svg --size 190x52
+lls tui --view models --screenshot .runtime/tui/models.svg --size 80x24
+```
+
+Screenshots must be new `.svg` files within the configured workspace. They contain
+the live backend's data; use an appropriate conversation before sharing chat captures.
+
 ## ⚙️ Configuration & Customization
 
 The application runs fully out-of-the-box with no manual configuration. On first launch, LlamaStudio creates its runtime config under:
@@ -278,6 +329,25 @@ For local environments containing active GPUs and downloaded models, you can run
 ./tests/test_all.sh
 ```
 *(These tests are automatically skipped in standard CI/CD environments and default `pytest` runs using `@pytest.mark.skipif` to keep pipeline checks fast.)*
+
+### 3. Terminal UI tests
+
+The default suite includes HTTP/SSE contract tests, CLI lifecycle tests, and
+Textual Pilot tests exercising actual widgets with isolated backend responses:
+
+```bash
+python -m pytest tests/test_tui.py tests/test_tui_client.py tests/test_tui_cli.py -q
+```
+
+For a real model response, reasoning, tool activity, persistence, and screenshots:
+
+```bash
+lls status  # A model must already be loaded
+RUN_TUI_LIVE=1 python -m pytest tests/test_tui_live.py -q -s
+```
+
+This opt-in test creates and removes only its own conversation, restores the
+previous selection, and writes review SVGs under `.runtime/tui/`.
 
 ---
 
