@@ -275,6 +275,30 @@ used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
 `lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
 The backend's filesystem and GPU are the ones shown in the TUI.
 
+All TUI colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
+stylesheet, header, capability badges, model status, and logs. Edit that file and
+press **Ctrl+P** in the TUI to reload it without restarting, refetching model lists,
+or losing a chat draft. Purple marks actions/selections, green and teal mark
+status/compatibility, gold marks capabilities/tool activity/warnings, and lilac
+grays mark secondary text. Layout rules stay in `app/tui/studio.tcss`.
+
+For a separate experiment (or an installed wheel), create a JSON file inside the
+configured workspace containing just the roles you want to override, for example:
+
+```json
+{
+  "primary": "#8b5cf6",
+  "focus": "#9d6bff",
+  "border": "#6d3df0"
+}
+```
+
+Run `lls tui --palette colors.json`; Ctrl+P reloads that file. Colors must be
+six-digit `#RRGGBB` values. Invalid edits keep the last working palette and show
+an error. `--palette` also works with `--screenshot`. Terminal color capability
+and `NO_COLOR` still apply; a palette cannot add true color to a terminal that
+does not support it.
+
 This first version handles text chat; media input remains in the web app. Split
 GGUF shards are identified but not offered as individual model downloads: fetch
 the complete set from the linked Hub repository. The Discover memory bar compares
