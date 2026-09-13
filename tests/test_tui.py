@@ -67,6 +67,8 @@ class Backend:
         }
         self.active_id = "saved"
         self.chat_gate: asyncio.Event | None = None
+        self.download_gate: asyncio.Event | None = None
+        self.download_requested = asyncio.Event()
 
     async def __call__(self, request):
         path = request.url.path
@@ -134,6 +136,9 @@ class Backend:
                 "speed_mb": 12,
             }
         elif path == "/api/models/download/active":
+            if self.download_gate:
+                self.download_requested.set()
+                await self.download_gate.wait()
             data = {"active": self.progress["status"] == "downloading", "progress": self.progress}
         elif path == "/api/models/download/cancel":
             self.progress["status"] = "cancelled"
@@ -383,6 +388,17 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.backend.online = True
             await self.app.poll_status()
             self.assertIn("Running", str(self.app.query_one("#connection", Static).render()))
+
+    async def test_status_response_after_shutdown_does_not_touch_unmounted_widgets(self):
+        async with self.app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot)
+            self.backend.download_gate = asyncio.Event()
+            pending = asyncio.create_task(self.app.poll_status())
+            await asyncio.wait_for(self.backend.download_requested.wait(), timeout=2)
+        self.assertFalse(self.app.is_running)
+        self.backend.download_gate.set()
+        await asyncio.wait_for(pending, timeout=2)
+        self.assertFalse(self.app._polling)
 
     async def test_header_telemetry_refresh_resize_and_cpu_mode(self):
         async with self.app.run_test(size=(190, 52)) as pilot:

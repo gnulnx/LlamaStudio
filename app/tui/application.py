@@ -102,13 +102,15 @@ class StudioApp(App[None]):
         self.set_interval(3, self.tick)
 
     def tick(self) -> None:
+        if not self.is_running:
+            return
         if not self._polling:
             self.run_worker(self.poll_status, group="status")
         if self.current_view == "logs":
             self._views["logs"].refresh_view()
 
     async def poll_status(self) -> None:
-        if self._polling:
+        if self._polling or not self.is_running:
             return
         self._polling = True
         try:
@@ -125,6 +127,11 @@ class StudioApp(App[None]):
             except APIError:
                 self.gpu = {}
             data = await self.client.get("/api/models/download/active")
+            # HTTP completion may race application shutdown. From here to the
+            # end of the render update there are no awaits, so one guard covers
+            # all widget access (not just the header in the finally block).
+            if not self.is_running:
+                return
             self.download_active = bool(data.get("active"))
             progress = data.get("progress") or {}
             state = progress.get("status", "idle")
