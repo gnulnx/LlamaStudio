@@ -8,6 +8,14 @@ A desktop chat interface and local server manager for `llama.cpp`, crafted with 
 
 ## 📸 Screenshots & Showcase
 
+### Terminal tour
+
+[![Watch the LlamaStudio terminal tour](imgs/tui/demo.gif)](imgs/tui/demo.mp4)
+
+[Watch the MP4](imgs/tui/demo.mp4): `lls tui`, then Discover, Models, a live chat,
+and inference logs—all using an already loaded model.
+[Regenerate the recording](#recording-the-demo) after changing the palette.
+
 ### 1. Main Chat Dashboard
 A Pop!_OS-harmonized dark interface with streaming, collapsible markdown reasoning (thinking) processes, and real-time agentic tool execution logs.
 ![Main Chat Dashboard](imgs/chat_interface.png)
@@ -185,6 +193,7 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | Command | Usage | Description |
 | :--- | :--- | :--- |
 | `start` | `lls start` | Starts the desktop app and opens the browser to the right first-run/chat/models/discover view. |
+| `tui` | `lls tui [--view discover\|models\|chat\|logs]` | Interactive terminal interface with mouse, keyboard, and adaptive layouts. Starts the backend without opening a browser when needed. |
 | `reload` | `lls reload` | Gracefully restarts the desktop FastAPI application backend. |
 | `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
@@ -235,6 +244,127 @@ Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
 
 ---
 
+### Terminal interface
+
+![LlamaStudio TUI Discover with live Hugging Face results](imgs/tui/discover.png)
+
+```bash
+lls tui
+lls tui --view chat
+lls tui --no-start     # Connect only; fail if the backend is offline
+```
+
+The TUI shares the web app's backend, model profiles, downloads, and saved
+conversations. Closing it leaves the backend and loaded model running. Discover
+supports Hugging Face search, sorting, README/details/files, GGUF selection,
+download progress, and cancellation. Models provides filtering, rescan, saved
+load settings, load/eject, and confirmed deletion. Chat supports multiline text,
+saved conversations, streamed Markdown, collapsible reasoning, and tool activity.
+Logs tails the application or inference server, with filtering and follow control.
+
+The header adds a two-line wordmark, the primary GPU, live device-wide VRAM
+usage, inference state (including CPU/GPU mode), and the active model. NVIDIA
+memory usage refreshes every three seconds; unsupported telemetry is shown as
+unavailable, not zero. Apple unified memory is labeled separately. Narrow or
+short terminals use a two-line status summary instead of the full header.
+
+Use F2–F5 to switch sections, Tab/Shift+Tab to move between controls, arrows and
+Enter to select, and F1 for help. In chat, Enter inserts a newline and Ctrl+S sends.
+Ctrl+R refreshes; Ctrl+Q quits. Every workflow also has mouse controls. In terminal
+multiplexers, forward shortcuts to the application (for example, use zellij's
+locked mode if its bindings intercept Ctrl+S). On macOS you may need Fn with
+function keys, or use the navigation buttons.
+
+Layouts adapt from a navigation rail and side-by-side panels to a navigation bar
+and separate list/detail views below 110 columns. An 80×24 terminal is supported;
+larger windows show more columns and model information. No Nerd Font, terminal
+image extension, or graphics protocol is needed. Standard terminal colors are
+used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
+`lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
+The backend's filesystem and GPU are the ones shown in the TUI.
+
+All TUI colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
+stylesheet, header, capability badges, model status, and logs. Edit that file and
+press **Ctrl+P** in the TUI to reload it without restarting, refetching model lists,
+or losing a chat draft. Purple marks actions/selections, green and teal mark
+status/compatibility, gold marks capabilities/tool activity/warnings, and lilac
+grays mark secondary text. Layout rules stay in `app/tui/studio.tcss`.
+
+For a separate experiment (or an installed wheel), create a JSON file inside the
+configured workspace containing just the roles you want to override, for example:
+
+```json
+{
+  "primary": "#8b5cf6",
+  "focus": "#9d6bff",
+  "border": "#6d3df0"
+}
+```
+
+Run `lls tui --palette colors.json`; Ctrl+P reloads that file. Colors must be
+six-digit `#RRGGBB` values. Invalid edits keep the last working palette and show
+an error. `--palette` also works with `--screenshot`. Terminal color capability
+and `NO_COLOR` still apply; a palette cannot add true color to a terminal that
+does not support it.
+
+This first version handles text chat; media input remains in the web app. Split
+GGUF shards are identified but not offered as individual model downloads: fetch
+the complete set from the linked Hub repository. The Discover memory bar compares
+GGUF weight bytes with reported GPU/unified memory, **not** guaranteed load capacity; context
+cache and runtime allocations need additional memory. The backend still shares
+one active conversation, so avoid sending simultaneously from the web app and TUI.
+
+Capture the real interface for visual review without a terminal:
+
+```bash
+lls tui --screenshot .runtime/tui/discover.svg --size 190x52
+lls tui --view models --screenshot .runtime/tui/models.svg --size 80x24
+```
+
+Screenshots must be new `.svg` files within the configured workspace. They contain
+the live backend's data; use an appropriate conversation before sharing chat captures.
+
+#### Recording the demo
+
+From the checkout, with the backend running and a model already loaded:
+
+```bash
+lls status
+lls demo-tui
+# Optional palette experiment and separate output:
+lls demo-tui --palette colors.json --output imgs/tui/experiment.mp4
+```
+
+The reproducible script is [app/tui/demo.tape](app/tui/demo.tape); edit its pauses,
+typing, and navigation to adjust the tour. The command uses the current TUI and
+palette—not canned screens—and produces `imgs/tui/demo.mp4`, a still
+`imgs/tui/demo-poster.png`, and `imgs/tui/demo.gif`. The lightweight README
+animation links to the full-quality MP4.
+
+Install [VHS](https://github.com/charmbracelet/vhs#installation) (tested with
+**0.11.0**), `ttyd`, FFmpeg (including `ffprobe`), Bash, and Chrome/Chromium.
+The tape uses DejaVu Sans Mono. No recording dependencies are added to the app's
+runtime requirements. Allow a few minutes for capture, encoding, and validation.
+
+The tour opens an edge-to-edge terminal matching the TUI palette's background,
+with three window dots and no outer frame. It types `lls tui`, browses all four sections,
+and requests a short real reply. It waits for Hub results and chat completion;
+network speed and the loaded model affect its duration and content. It never
+loads, ejects, downloads, or changes a model profile. A temporary demo conversation
+is created and deleted afterward; the previously active conversation is restored
+unless you switched it elsewhere. Keep other clients idle during recording.
+
+**Review before publishing:** real conversation titles, model names, filesystem
+paths, and logs can appear in the video. This is a live capture, not an anonymizer.
+The recorder enables true color only in its child environment, preserves shell
+history, and exports 1920×1080 H.264/yuv420p with fast-start playback. The GIF is a
+960×540, 3 fps, 96-color looping preview, kept below 10,000,000 bytes for
+[GitHub's image limit](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files).
+All outputs are staged; the MP4 passes metadata and full-decode checks and
+the GIF passes a full-decode check before replacing the previous recording.
+Changing the palette and rerunning the same command refreshes the demo without
+hand-editing the video.
+
 ## ⚙️ Configuration & Customization
 
 The application runs fully out-of-the-box with no manual configuration. On first launch, LlamaStudio creates its runtime config under:
@@ -278,6 +408,25 @@ For local environments containing active GPUs and downloaded models, you can run
 ./tests/test_all.sh
 ```
 *(These tests are automatically skipped in standard CI/CD environments and default `pytest` runs using `@pytest.mark.skipif` to keep pipeline checks fast.)*
+
+### 3. Terminal UI tests
+
+The default suite includes HTTP/SSE contract tests, CLI lifecycle tests, and
+Textual Pilot tests exercising actual widgets with isolated backend responses:
+
+```bash
+python -m pytest tests/test_tui.py tests/test_tui_client.py tests/test_tui_cli.py -q
+```
+
+For a real model response, reasoning, tool activity, persistence, and screenshots:
+
+```bash
+lls status  # A model must already be loaded
+RUN_TUI_LIVE=1 python -m pytest tests/test_tui_live.py -q -s
+```
+
+This opt-in test creates and removes only its own conversation, restores the
+previous selection, and writes review SVGs under `.runtime/tui/`.
 
 ---
 

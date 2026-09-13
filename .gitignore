@@ -28,3 +28,4 @@ node_modules/
 
 # Local development runtime downloads
 .runtime/
+.tui-demo-*/

@@ -1,0 +1,170 @@
+Screen {
+    background: $studio-background;
+    color: $studio-text;
+}
+#masthead {
+    height: 6;
+    padding: 0 1 1 1;
+    background: $studio-background;
+}
+#header-full { height: 5; align-vertical: middle; }
+#identity { width: 28; height: 5; align-vertical: middle; }
+#wordmark { width: 26; height: 3; padding-top: 1; }
+#brand { height: 1; color: $studio-focus; text-style: bold; }
+#tagline { height: 1; color: $studio-muted; text-wrap: nowrap; text-overflow: ellipsis; }
+#telemetry { width: 1fr; height: 5; border: solid $studio-border; padding: 0 1; background: $studio-panel; }
+.header-stat { height: 2; padding: 0 1; margin-top: 0; border-right: solid $studio-border-muted; }
+.header-stat Static { height: 1; text-overflow: ellipsis; text-wrap: nowrap; }
+.stat-label { color: $studio-muted; }
+#gpu-stat { width: 30; }
+#memory-stat { width: 31; height: 3; }
+#server-stat { width: 23; }
+#model-stat { width: 1fr; border: none; }
+#header-meta { width: 11; height: 3; padding-top: 1; color: $studio-muted; text-align: right; }
+#header-meta Static { height: 1; }
+#header-version { color: $studio-accent; }
+#header-summary { display: none; height: 2; text-wrap: nowrap; }
+#masthead.condensed { height: 3; padding: 0 1 1 1; }
+#masthead.condensed #header-full { display: none; }
+#masthead.condensed #header-summary { display: block; }
+#workspace { height: 1fr; padding: 0 1; }
+#navigation {
+    width: 15;
+    margin-right: 1;
+    border: round $studio-border;
+    padding: 1 0;
+    background: $studio-panel;
+}
+.nav-button { width: 100%; height: 4; min-width: 0; border: none; background: transparent; color: $studio-muted; }
+.nav-button:hover { background: $studio-hover; }
+.nav-button.active { background: $studio-selection; color: $studio-text; text-style: bold; border-left: thick $studio-focus; }
+#sections { width: 1fr; height: 1fr; }
+StudioView { width: 100%; height: 100%; }
+.panel { border: round $studio-border; background: $studio-panel; }
+.panel:focus-within { border: round $studio-focus; }
+.master { width: 1fr; height: 100%; padding: 0 1; }
+.detail { width: 48; height: 100%; margin-left: 1; padding: 1 1; }
+.detail-title { color: $studio-accent; text-style: bold; width: 100%; height: auto; margin-bottom: 1; }
+.toolbar { height: 3; margin: 1 0; }
+.toolbar Input { width: 1fr; }
+.toolbar Button { margin-left: 1; min-width: 9; }
+#hub-sort { width: 19; margin-left: 1; }
+Input { border: tall $studio-border-muted; background: $studio-surface; }
+Select { border: none; background: $studio-surface; }
+Select > SelectCurrent { border: tall $studio-border-muted; background: $studio-surface; }
+Input:focus { border: tall $studio-focus; }
+Select:focus > SelectCurrent { border: tall $studio-focus; }
+Select > SelectOverlay { color: $studio-text; background: $studio-surface; border: tall $studio-focus; }
+Select > SelectOverlay > .option-list--option { padding: 0 1; color: $studio-text; }
+Select > SelectOverlay > .option-list--option-highlighted { color: $studio-on-accent; background: $studio-selection; text-style: bold; }
+Select > SelectOverlay > .option-list--option-hover { color: $studio-on-accent; background: $studio-selection-inactive; }
+Button { background: $studio-hover; border: tall $studio-border-muted; color: $studio-text; min-width: 10; }
+Button:focus { text-style: bold; border: tall $studio-focus; }
+Button.-primary { background: $studio-primary; color: $studio-on-accent; border: tall $studio-primary; }
+Button.-primary:hover { background: $studio-selection; border: tall $studio-focus; }
+Button.-error { background: $studio-error 10%; color: $studio-error; border: tall $studio-error 50%; }
+Button:disabled { opacity: 45%; }
+DataTable { height: 1fr; background: $studio-panel; scrollbar-size: 1 1; }
+DataTable > .datatable--header { background: $studio-panel; color: $studio-muted; text-style: bold; }
+DataTable > .datatable--odd-row { background: $studio-surface; }
+DataTable > .datatable--even-row { background: $studio-panel; }
+DataTable > .datatable--cursor { background: $studio-selection-inactive; color: $studio-on-accent; text-style: bold; }
+DataTable:focus > .datatable--cursor { background: $studio-selection; }
+.muted { color: $studio-muted; height: auto; margin: 0 0 1 0; }
+.list-hint { color: $studio-muted; height: 1; margin-top: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+.eyebrow { color: $studio-muted; margin: 1 0; height: 1; }
+.info-card { height: auto; background: $studio-surface; padding: 1; margin-top: 1; }
+#hub-fit { color: $studio-teal; }
+#hub-memory { width: 100%; margin: 0 0 1 0; }
+#hub-memory Bar { width: 1fr; }
+#hub-memory Bar > .bar--bar, #hub-memory Bar > .bar--complete { color: $studio-teal; background: $studio-border-muted; }
+#hub-download { width: 100%; margin-bottom: 1; }
+#hub-link { width: 100%; color: $studio-accent; }
+TabbedContent { height: auto; min-height: 12; }
+TabPane { padding: 1 0; height: auto; }
+Tabs { background: $studio-surface; }
+Tab { color: $studio-muted; }
+Tab.-active { color: $studio-accent; }
+Markdown { background: transparent; padding: 0; margin: 0; height: auto; }
+MarkdownH1, MarkdownH2, MarkdownH3 { background: transparent; color: $studio-accent; }
+MarkdownFence { background: $studio-surface; }
+.back { display: none; }
+.actions { height: auto; min-height: 3; margin: 1 0; }
+.actions Button { width: 1fr; min-width: 8; margin-right: 1; }
+#local-save, #local-delete { width: 100%; margin-top: 1; }
+#local-info { margin-bottom: 1; }
+ModelsView .detail > Input, ModelsView .detail > Select { margin-bottom: 1; }
+Checkbox { background: transparent; border: none; padding: 0; height: 3; }
+.conversations { width: 30; }
+.conversations > .eyebrow { margin-top: 1; }
+#chat-new { width: 100%; }
+#chat-conversations { height: 1fr; background: transparent; border: none; margin-top: 1; }
+#chat-conversations > .option-list--option { padding: 1; }
+#chat-conversations > .option-list--option-highlighted { background: $studio-selection-inactive; color: $studio-on-accent; }
+#chat-conversations:focus > .option-list--option-highlighted { background: $studio-selection; }
+.chat-detail { width: 1fr; padding: 0 1; }
+.chat-heading { height: 3; padding-top: 1; }
+#chat-title { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+#chat-transcript { height: 1fr; padding: 0 1; }
+.welcome { height: auto; margin: 3 2; color: $studio-muted; }
+.message { height: auto; margin: 0 0 1 0; padding: 1 2; background: $studio-surface; }
+.message.user { background: $studio-primary 10%; border-left: thick $studio-primary; }
+.message.assistant { border-left: thick $studio-border-muted; }
+.message.tool { border-left: thick $studio-warning; }
+.message-role { color: $studio-muted; text-style: bold; margin-bottom: 1; }
+.message.tool .message-role { color: $studio-warning; }
+.message Static { height: auto; }
+Collapsible { background: $studio-surface; border: none; padding: 0; margin: 1 0; }
+CollapsibleTitle { color: $studio-muted; }
+.reasoning-activity CollapsibleTitle { color: $studio-teal; }
+.tool-activity CollapsibleTitle { color: $studio-warning; }
+.error-text { color: $studio-error; margin: 1 0; }
+#chat-state { height: 1; text-wrap: nowrap; text-overflow: ellipsis; margin-bottom: 0; }
+#chat-input { height: 5; border: round $studio-border; background: $studio-surface; }
+#chat-input:focus { border: round $studio-focus; }
+.chat-controls { height: 3; }
+#chat-thinking { width: 16; }
+.composer-hint { width: 1fr; padding: 1; color: $studio-muted; text-wrap: nowrap; }
+#chat-send { width: 12; }
+.logs-panel { width: 100%; padding: 0 1; }
+#log-source { width: 21; margin-right: 1; }
+#log-follow { width: 14; margin-left: 1; }
+#log-output { height: 1fr; background: $studio-panel; }
+#download-tray { height: 3; padding: 0 2; background: $studio-hover; }
+#download-label { width: 1fr; padding-top: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+#download-progress { width: 30; padding-top: 1; }
+#download-progress Bar { width: 20; }
+#download-cancel { min-width: 10; }
+Footer { background: $studio-surface; color: $studio-muted; }
+Footer > .footer-key--key { background: $studio-selection-inactive; color: $studio-text; }
+ModalScreen { align: center middle; background: $studio-background 65%; }
+.dialog { width: 64; max-width: 95%; height: auto; max-height: 90%; border: round $studio-focus; background: $studio-surface; padding: 1 2; }
+.dialog-title { color: $studio-accent; text-style: bold; margin-bottom: 1; }
+.dialog > Static { height: auto; margin-bottom: 1; }
+.help-dialog { height: 32; width: 76; }
+.help-dialog VerticalScroll { height: 1fr; }
+.help-dialog Button { width: 100%; }
+.compact #workspace { layout: vertical; }
+.compact #navigation { layout: horizontal; height: 3; width: 100%; padding: 0; margin: 0; border: none; }
+.compact .nav-button { height: 3; width: 1fr; }
+.compact .nav-button.active { border-left: none; border-bottom: tall $studio-focus; }
+.compact .master { width: 100%; }
+.compact .detail { display: none; width: 100%; margin-left: 0; }
+.compact .show-detail > .master { display: none; }
+.compact .show-detail > .detail { display: block; }
+.compact .back { display: block; height: 3; width: auto; margin-bottom: 1; }
+.compact .chat-heading { height: 3; padding-top: 0; }
+.compact #chat-back { width: 10; margin-right: 1; }
+.compact #chat-title { margin-top: 1; }
+.compact .conversations { width: 100%; }
+.compact #hub-sort { width: 19; }
+.compact #hub-search { display: none; }
+.compact #download-progress { width: 20; }
+.compact #download-progress Bar { width: 10; }
+.short .toolbar { margin: 0; }
+.short #chat-input { height: 3; }
+.short .composer-hint { display: none; }
+.short #chat-thinking { width: 1fr; }
+.short .list-hint { margin-top: 0; }
+.compact .nav-button { content-align: center middle; padding: 0; border: none; }
+.compact .nav-button.active { border: none; }
