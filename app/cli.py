@@ -1,5 +1,7 @@
+import asyncio
 import contextlib
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -15,6 +17,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+
+from app.tools import check_path_safe
+from app.tui.application import StudioApp
 
 # Configure rich-click visual styling to match a premium terminal theme
 click.rich_click.USE_RICH_MARKUP = True
@@ -81,14 +86,18 @@ def wait_for_server_ready(timeout: int = 15) -> bool:
     return False
 
 
-def start_server_background() -> bool:
+def start_server_background(*, open_browser: bool | None = None) -> bool:
     """Launch the main desktop FastAPI server as a daemonized background process."""
     console.print("[yellow]Starting LlamaStudio desktop server in the background...[/yellow]")
+    launch_env = os.environ.copy()
+    if open_browser is not None:
+        launch_env["LLAMASTUDIO_OPEN_BROWSER"] = "1" if open_browser else "0"
     subprocess.Popen(
         server_launch_command(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        env=launch_env,
     )
 
     # Wait for startup
@@ -149,6 +158,68 @@ def cli():
     and manage your background desktop server.
     """
     pass
+
+
+@cli.command()
+@click.option(
+    "--view",
+    type=click.Choice(["discover", "models", "chat", "logs"]),
+    default="discover",
+    show_default=True,
+)
+@click.option("--no-start", is_flag=True, help="Require an already running LlamaStudio backend.")
+@click.option(
+    "--screenshot",
+    type=click.Path(dir_okay=False),
+    help="Capture the real TUI to a workspace SVG and exit (no terminal required).",
+)
+@click.option(
+    "--size", default="180x48", show_default=True, help="Screenshot size in columns x rows."
+)
+def tui(view: str, no_start: bool, screenshot: str | None, size: str) -> None:
+    """Open LlamaStudio's interactive terminal interface. Quitting keeps the backend running."""
+    target = None
+    if screenshot:
+        try:
+            target = check_path_safe(screenshot)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if target.suffix.lower() != ".svg":
+            raise click.BadParameter("Use an .svg filename.", param_hint="--screenshot")
+        if target.exists():
+            raise click.ClickException(f"Screenshot already exists: {target}")
+    elif not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise click.ClickException(
+            "lls tui needs an interactive terminal. For a remote shell, use ssh -t. Use --screenshot for a headless capture."
+        )
+    try:
+        columns, rows = (int(part) for part in size.lower().split("x"))
+        if not 40 <= columns <= 400 or not 15 <= rows <= 150:
+            raise ValueError
+    except ValueError as exc:
+        raise click.BadParameter(
+            "Use columns x rows, e.g. 180x48 (40-400 columns, 15-150 rows).", param_hint="--size"
+        ) from exc
+    if is_server_online():
+        if not wait_for_server_ready(timeout=3):
+            raise click.ClickException(
+                "The configured port is occupied, but the LlamaStudio API is not ready."
+            )
+    elif no_start:
+        raise click.ClickException(
+            "LlamaStudio is offline. Run lls tui without --no-start to start it."
+        )
+    else:
+        config_loader.initialize_for_launch(Path.cwd())
+        if not start_server_background(open_browser=False):
+            raise click.ClickException("Could not start the LlamaStudio backend.")
+    application = StudioApp(API_BASE_URL, initial_view=view)
+    if target:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        asyncio.run(application.capture(str(target), (columns, rows)))
+        console.print(f"Saved TUI screenshot: {target}")
+    else:
+        application.run()
 
 
 @cli.command()

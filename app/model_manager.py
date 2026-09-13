@@ -250,7 +250,7 @@ async def get_huggingface_model_details(repo_id: str) -> dict[str, Any] | None:
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, headers=headers, params={"blobs": "true"})
             if resp.status_code != 200:
                 return None
             return resp.json()

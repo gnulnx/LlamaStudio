@@ -72,8 +72,10 @@ class StudioClient:
     async def get(self, path: str, **params: Any) -> Any:
         return await self.request("GET", path, params=params)
 
-    async def post(self, path: str, **payload: Any) -> Any:
-        return await self.request("POST", path, json=payload, timeout=httpx.Timeout(180, connect=5))
+    async def post(self, endpoint: str, **payload: Any) -> Any:
+        return await self.request(
+            "POST", endpoint, json=payload, timeout=httpx.Timeout(180, connect=5)
+        )
 
     async def chat(self, **payload: Any) -> AsyncIterator[dict[str, Any]]:
         """Read complete SSE frames, including frames split across network chunks."""

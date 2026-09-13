@@ -70,6 +70,7 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(details)
         self.assertEqual(details["id"], "google/gemma-2-9b-it-GGUF")
         self.assertEqual(len(details["siblings"]), 1)
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"blobs": "true"})
 
     @patch("httpx.AsyncClient.get")
     async def test_get_huggingface_model_readme_success(self, mock_get):
