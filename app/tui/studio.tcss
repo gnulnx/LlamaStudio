@@ -3,13 +3,31 @@ Screen {
     color: #c9c5e4;
 }
 #masthead {
-    height: 3;
-    padding: 1 2 0 2;
+    height: 6;
+    padding: 0 1 1 1;
     background: #101019;
 }
-#brand { width: auto; color: #b49aff; text-style: bold; }
-#tagline { width: 1fr; padding-left: 3; color: #85829f; }
-#connection { width: 1fr; text-align: right; text-overflow: ellipsis; text-wrap: nowrap; }
+#header-full { height: 5; align-vertical: middle; }
+#identity { width: 36; height: 5; align-vertical: middle; }
+#llama { width: 10; height: 5; }
+#wordmark { width: 26; height: 3; padding-top: 1; }
+#brand { height: 1; color: #b49aff; text-style: bold; }
+#tagline { height: 1; color: #85829f; text-wrap: nowrap; text-overflow: ellipsis; }
+#telemetry { width: 1fr; height: 5; border: solid #443461; padding: 0 1; }
+.header-stat { height: 2; padding: 0 1; margin-top: 0; border-right: solid #443461; }
+.header-stat Static { height: 1; text-overflow: ellipsis; text-wrap: nowrap; }
+.stat-label { color: #9390ad; }
+#gpu-stat { width: 30; }
+#memory-stat { width: 31; height: 3; }
+#server-stat { width: 23; }
+#model-stat { width: 1fr; border: none; }
+#header-meta { width: 11; height: 3; padding-top: 1; color: #9390ad; text-align: right; }
+#header-meta Static { height: 1; }
+#header-version { color: #b49aff; }
+#header-summary { display: none; height: 2; text-wrap: nowrap; }
+#masthead.condensed { height: 3; padding: 0 1 1 1; }
+#masthead.condensed #header-full { display: none; }
+#masthead.condensed #header-summary { display: block; }
 #workspace { height: 1fr; padding: 0 1; }
 #navigation {
     width: 15;
@@ -121,9 +139,6 @@ ModalScreen { align: center middle; background: #000000 65%; }
 .help-dialog { height: 32; width: 76; }
 .help-dialog VerticalScroll { height: 1fr; }
 .help-dialog Button { width: 100%; }
-.compact #masthead { height: 2; padding: 0 1; }
-.compact #tagline { display: none; }
-.compact #brand { width: 1fr; }
 .compact #workspace { layout: vertical; }
 .compact #navigation { layout: horizontal; height: 3; width: 100%; padding: 0; margin: 0; border: none; }
 .compact .nav-button { height: 3; width: 1fr; }
@@ -141,7 +156,6 @@ ModalScreen { align: center middle; background: #000000 65%; }
 .compact #hub-search { display: none; }
 .compact #download-progress { width: 20; }
 .compact #download-progress Bar { width: 10; }
-.short #masthead { height: 1; padding-top: 0; }
 .short .toolbar { margin: 0; }
 .short #chat-input { height: 3; }
 .short .composer-hint { display: none; }

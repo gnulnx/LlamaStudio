@@ -45,7 +45,10 @@ class Backend:
             "running": True,
             "current_model": "/models/tiny.gguf",
             "current_model_name": "Tiny Q4_K_M",
+            "current_params": {"gpu_layers": 42, "cpu_mode": False},
         }
+        self.gpu = {"name": "Test GPU", "vram": 24, "total_vram": 24, "used_vram": 6}
+        self.gpu_available = True
         self.progress = {"status": "idle"}
         self.conversations = {
             "saved": {
@@ -75,7 +78,9 @@ class Backend:
         if path == "/api/server/status":
             data = self.status
         elif path == "/api/gpu":
-            data = {"name": "Test GPU", "vram": 24}
+            if not self.gpu_available:
+                return httpx.Response(503, json={"detail": "Telemetry unavailable"})
+            data = self.gpu
         elif path == "/api/models/search":
             data = {
                 "models": [
@@ -377,7 +382,61 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertIn("unavailable", str(self.app.query_one("#connection", Static).render()))
             self.backend.online = True
             await self.app.poll_status()
-            self.assertIn("Loaded", str(self.app.query_one("#connection", Static).render()))
+            self.assertIn("Running", str(self.app.query_one("#connection", Static).render()))
+
+    async def test_header_telemetry_refresh_resize_and_cpu_mode(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            self.assertTrue(self.app.query_one("#header-full").display)
+            self.assertIn("Test GPU", str(self.app.query_one("#gpu-name", Static).render()))
+            self.assertIn("6.0 / 24.0 GiB (25%)", str(self.app.query_one("#memory-value").render()))
+            self.assertIn("Running / GPU", str(self.app.query_one("#connection").render()))
+            self.assertIn("Tiny Q4_K_M", str(self.app.query_one("#active-model").render()))
+            bar = self.app.query_one("#memory-bar")
+            self.assertGreater(bar.region.height, 0)
+            self.assertLessEqual(
+                bar.region.bottom, self.app.query_one("#telemetry").content_region.bottom
+            )
+            self.backend.gpu["used_vram"] = 12
+            self.backend.status["current_params"]["cpu_mode"] = True
+            await self.app.poll_status()
+            self.assertIn(
+                "12.0 / 24.0 GiB (50%)", str(self.app.query_one("#memory-value").render())
+            )
+            self.assertIn("Running / CPU", str(self.app.query_one("#connection").render()))
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            self.assertFalse(self.app.query_one("#header-full").display)
+            summary = str(self.app.query_one("#header-summary").render())
+            for label in ("Tiny Q4_K_M", "Test GPU", "50%", "Running / CPU"):
+                self.assertIn(label, summary)
+            self.assertEqual(self.app.query_one("#masthead").region.height, 3)
+            await pilot.resize_terminal(190, 52)
+            await pilot.pause()
+            self.assertTrue(self.app.query_one("#header-full").display)
+
+    async def test_header_loading_stopped_offline_and_unavailable_telemetry(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            self.backend.gpu = {"name": "Apple M3", "vram": 32, "memory_kind": "unified"}
+            await self.app.poll_status()
+            self.assertIn("UNIFIED", str(self.app.query_one("#memory-label").render()))
+            self.assertIn("usage N/A", str(self.app.query_one("#memory-value").render()))
+            self.backend.gpu_available = False
+            await self.app.poll_status()
+            self.assertIn("Running", str(self.app.query_one("#connection").render()))
+            self.assertIn("Unavailable", str(self.app.query_one("#memory-value").render()))
+            self.backend.status["is_loading"] = True
+            await self.app.poll_status()
+            self.assertIn("Loading", str(self.app.query_one("#connection").render()))
+            self.backend.status.update(is_loading=False, running=False)
+            await self.app.poll_status()
+            self.assertIn("Stopped", str(self.app.query_one("#connection").render()))
+            self.assertIn("No model loaded", str(self.app.query_one("#active-model").render()))
+            self.backend.online = False
+            await self.app.poll_status()
+            self.assertIn("unavailable", str(self.app.query_one("#connection").render()))
+            self.assertIn("Unavailable", str(self.app.query_one("#active-model").render()))
 
     async def test_resize_preserves_model_selection_and_unsaved_settings(self):
         self.backend.models.append({

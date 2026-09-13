@@ -254,6 +254,12 @@ load settings, load/eject, and confirmed deletion. Chat supports multiline text,
 saved conversations, streamed Markdown, collapsible reasoning, and tool activity.
 Logs tails the application or inference server, with filtering and follow control.
 
+The header adds a little ASCII llama, the primary GPU, live device-wide VRAM
+usage, inference state (including CPU/GPU mode), and the active model. NVIDIA
+memory usage refreshes every three seconds; unsupported telemetry is shown as
+unavailable, not zero. Apple unified memory is labeled separately. Narrow or
+short terminals use a two-line status summary instead of the full header.
+
 Use F2–F5 to switch sections, Tab/Shift+Tab to move between controls, arrows and
 Enter to select, and F1 for help. In chat, Enter inserts a newline and Ctrl+S sends.
 Ctrl+R refreshes; Ctrl+Q quits. Every workflow also has mouse controls. In terminal
@@ -271,8 +277,8 @@ The backend's filesystem and GPU are the ones shown in the TUI.
 
 This first version handles text chat; media input remains in the web app. Split
 GGUF shards are identified but not offered as individual model downloads: fetch
-the complete set from the linked Hub repository. Memory bars compare GGUF weight
-bytes with reported GPU/unified memory, **not** guaranteed load capacity; context
+the complete set from the linked Hub repository. The Discover memory bar compares
+GGUF weight bytes with reported GPU/unified memory, **not** guaranteed load capacity; context
 cache and runtime allocations need additional memory. The backend still shares
 one active conversation, so avoid sending simultaneously from the web app and TUI.
 

@@ -90,3 +90,49 @@ class TestLiveTUI(unittest.IsolatedAsyncioTestCase):
             if previous_id:
                 await client.post(f"/api/chat/switch/{previous_id}")
             await client.close()
+
+
+@unittest.skipUnless(
+    os.environ.get("RUN_TUI_VISUAL") == "1", "Requires a running backend and network access"
+)
+class TestLiveVisualTUI(unittest.IsolatedAsyncioTestCase):
+    """Read-only UI review: live telemetry, open dropdowns, and terminal resizing.
+
+    RUN_TUI_VISUAL=1 python -m pytest tests/test_tui_live.py -k Visual -q
+    Does not load/unload a model or create/switch a conversation.
+    """
+
+    async def test_live_header_and_dropdowns(self):
+        app = StudioApp(API_BASE_URL)
+        async with app.run_test(size=(190, 52)) as pilot:
+            for _ in range(3):
+                await asyncio.wait_for(app.workers.wait_for_complete(), timeout=60)
+                await pilot.pause()
+            self.assertTrue(app.connected)
+            self.assertTrue(app.gpu.get("name"))
+
+            def capture(name):
+                target = check_path_safe(f".runtime/tui/{name}.svg")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                app.save_screenshot(filename=str(target))
+
+            capture("header-live")
+            await pilot.click("#hub-sort")
+            await pilot.pause()
+            overlay = app.query_one("#hub-sort SelectOverlay")
+            text = "\n".join(
+                overlay.render_line(y).text for y in range(overlay.scrollable_content_region.height)
+            )
+            for label in ("Most likes", "Downloads", "Updated"):
+                self.assertIn(label, text)
+            capture("dropdown-live")
+            await pilot.press("escape")
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause()
+            capture("header-medium-live")
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            capture("header-small-live")
+            await pilot.click("#hub-sort")
+            await pilot.pause()
+            capture("dropdown-small-live")

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from importlib.metadata import version
 from typing import ClassVar
 from urllib.parse import urljoin, urlparse
 
@@ -14,11 +12,12 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
-from textual.widgets import Button, ContentSwitcher, Footer, Label, Markdown, ProgressBar, Static
+from textual.widgets import Button, ContentSwitcher, Footer, Markdown, ProgressBar, Static
 
 from .chat import ChatView
 from .client import APIError, StudioClient
 from .discover import DiscoverView
+from .header import StudioHeader
 from .logs import LogsView
 from .models import ModelsView
 from .widgets import Confirm, Help, StudioView
@@ -51,7 +50,7 @@ class StudioApp(App[None]):
         self.gpu: dict = {}
         self.download_active = False
         self._polling = False
-        self._gpu_updated = 0.0
+        self.connected = False
         self._last_download_state = "idle"
         self._views: dict[str, StudioView] = {}
         self.register_theme(
@@ -73,10 +72,7 @@ class StudioApp(App[None]):
         self.theme = "llamastudio"
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="masthead"):
-            yield Label(f"LlamaStudio TUI  {version('llamastudio')}", id="brand")
-            yield Static("Discover / Download / Run locally", id="tagline")
-            yield Static("Connecting...", id="connection")
+        yield StudioHeader(id="masthead")
         with Horizontal(id="workspace"):
             with Vertical(id="navigation"):
                 yield Button("F2 Discover", id="nav-discover", classes="nav-button")
@@ -116,19 +112,18 @@ class StudioApp(App[None]):
             return
         self._polling = True
         try:
-            self.server_status = await self.client.get("/api/server/status")
-            name = self.server_status.get("current_model_name")
-            state = (
-                "Loading model..."
-                if self.server_status.get("is_loading")
-                else f"Loaded / {name}"
-                if self.server_status.get("running")
-                else "Online / no model loaded"
-            )
-            self.query_one("#connection", Static).update(Text(state, style="#39d99a"))
-            if time.monotonic() - self._gpu_updated > 30:
+            try:
+                self.server_status = await self.client.get("/api/server/status")
+                self.connected = True
+            except APIError:
+                self.connected = False
+                self.server_status = {}
+                self.gpu = {}
+                return
+            try:
                 self.gpu = await self.client.get("/api/gpu")
-                self._gpu_updated = time.monotonic()
+            except APIError:
+                self.gpu = {}
             data = await self.client.get("/api/models/download/active")
             self.download_active = bool(data.get("active"))
             progress = data.get("progress") or {}
@@ -158,12 +153,12 @@ class StudioApp(App[None]):
                     self.notify("Download cancelled. Partial data is retained for resume.")
             self._last_download_state = state
         except APIError:
-            self.query_one("#connection", Static).update(
-                Text("Backend unavailable / retrying...", style="#eac86a")
-            )
+            # An unavailable downloads endpoint is not an inference-server outage.
+            pass
         finally:
             self._polling = False
-            if self._views:
+            self.update_header()
+            if self.is_running and self._views:
                 self._views["discover"].update_memory()
                 self._views["models"].update_status()
 
@@ -180,10 +175,24 @@ class StudioApp(App[None]):
         self.screen_stack[0].set_class(
             (height if height is not None else self.size.height) < 30, "short"
         )
+        self.query_one(StudioHeader).set_class(
+            (width if width is not None else self.size.width) < 150
+            or (height if height is not None else self.size.height) < 30,
+            "condensed",
+        )
+        self.call_after_refresh(self.update_header)
         for number, name in enumerate(self._views, 2):
             self.query_one(
                 f"#nav-{name}", Button
             ).label = f"F{number}{' ' if compact else chr(10)}{name.title()}"
+
+    def update_header(self) -> None:
+        # A cancelled polling worker can finish while child widgets unmount.
+        if not self.is_running:
+            return
+        self.query_one(StudioHeader).update_status(
+            self.server_status, self.gpu, connected=self.connected
+        )
 
     @on(Button.Pressed, ".nav-button")
     def navigate(self, event: Button.Pressed) -> None:
