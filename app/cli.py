@@ -20,6 +20,7 @@ from rich.table import Table
 
 from app.tools import check_path_safe
 from app.tui.application import StudioApp
+from app.tui.demo import DemoError, record_demo
 from app.tui.palette import load_palette
 
 # Configure rich-click visual styling to match a premium terminal theme
@@ -230,6 +231,32 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: s
         console.print(f"Saved TUI screenshot: {target}")
     else:
         application.run()
+
+
+@cli.command("demo-tui")
+@click.option(
+    "--output",
+    default="imgs/tui/demo.mp4",
+    show_default=True,
+    type=click.Path(dir_okay=False),
+    help="Workspace MP4 path; also writes <stem>.gif and <stem>-poster.png.",
+)
+@click.option("--palette", type=click.Path(dir_okay=False), help="Workspace JSON palette override.")
+def demo_tui(output: str, palette: str | None) -> None:
+    """Record a live four-screen TUI tour. Requires VHS, FFmpeg and a loaded model."""
+    console.print(
+        "Recording live Discover, Models, Chat and Logs. Existing titles, model names and logs "
+        "will be visible; review the clip before publishing. Please leave other clients idle."
+    )
+    try:
+        with console.status("Recording the TUI and validating the MP4..."):
+            result = record_demo(API_BASE_URL, output, palette)
+    except (DemoError, ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"Saved MP4: {result.video}")
+    console.print(f"Saved README poster: {result.poster}")
+    console.print(f"Saved README animation: {result.preview}")
+    console.print(f"1920x1080 / {result.duration:.1f}s / {result.size / 1_000_000:.1f} MB")
 
 
 @cli.command()
