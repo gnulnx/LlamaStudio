@@ -36,6 +36,10 @@ Select { border: none; background: #161421; }
 Select > SelectCurrent { border: tall #443461; background: #161421; }
 Input:focus { border: tall #a78bfa; }
 Select:focus > SelectCurrent { border: tall #a78bfa; }
+Select > SelectOverlay { color: #e2d9ff; background: #191525; border: tall #a78bfa; }
+Select > SelectOverlay > .option-list--option { padding: 0 1; color: #e2d9ff; }
+Select > SelectOverlay > .option-list--option-highlighted { color: #ffffff; background: #49307a; text-style: bold; }
+Select > SelectOverlay > .option-list--option-hover { color: #ffffff; background: #372264; }
 Button { background: #242035; border: tall #3d3155; color: #c9c5e4; min-width: 10; }
 Button:focus { text-style: bold; border: tall #b49aff; }
 Button.-primary { background: #7442dd; color: #ffffff; border: tall #8b5cf6; }
@@ -76,8 +80,8 @@ Checkbox { background: transparent; border: none; padding: 0; height: 3; }
 .conversations > .eyebrow { margin-top: 1; }
 #chat-new { width: 100%; }
 #chat-conversations { height: 1fr; background: transparent; border: none; margin-top: 1; }
-OptionList > .option-list--option { padding: 1; }
-OptionList > .option-list--option-highlighted { background: #372264; }
+#chat-conversations > .option-list--option { padding: 1; }
+#chat-conversations > .option-list--option-highlighted { background: #372264; }
 .chat-detail { width: 1fr; padding: 0 1; }
 .chat-heading { height: 3; padding-top: 1; }
 #chat-title { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }

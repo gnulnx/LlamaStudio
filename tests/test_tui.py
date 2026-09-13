@@ -217,6 +217,25 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.app.current_view, "logs")
             self.assertEqual(self.app.query_one("#logs").last_lines[0], "INFO Server ready\n")
 
+    async def test_dropdown_options_are_visible_and_selectable(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            await pilot.click("#hub-sort")
+            await pilot.pause()
+            overlay = self.app.query_one("#hub-sort SelectOverlay")
+            visible_text = "\n".join(
+                overlay.render_line(y).text for y in range(overlay.scrollable_content_region.height)
+            )
+            for label in ("Most likes", "Downloads", "Updated"):
+                self.assertIn(label, visible_text)
+            normal = overlay.get_component_rich_style("option-list--option")
+            highlighted = overlay.get_component_rich_style("option-list--option-highlighted")
+            self.assertNotEqual(normal.color, normal.bgcolor)
+            self.assertNotEqual(highlighted.color, highlighted.bgcolor)
+            await pilot.press("down", "enter")
+            await self.settle(pilot)
+            self.assertEqual(self.app.query_one("#hub-sort", Select).value, "downloads")
+
     async def test_download_requires_confirmation_and_survives_navigation(self):
         async with self.app.run_test(size=(180, 48)) as pilot:
             await self.settle(pilot)
