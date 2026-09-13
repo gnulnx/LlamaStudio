@@ -91,3 +91,27 @@ class TestTuiCommand(unittest.TestCase):
         self.assertNotEqual(result.exit_code, 0)
         safe.assert_called_once_with("../outside.svg")
         self.assertIn("outside workspace", result.output)
+
+
+class TestStatusMemory(unittest.TestCase):
+    def test_status_handles_measured_unknown_and_legacy_memory(self):
+        for memory, expected in (
+            ({"total_vram": 24, "free_vram": 18}, "18.00 GiB / 24.00 GiB free"),
+            ({"total_vram": 24, "free_vram": None}, "usage unavailable"),
+            ({"total_vram": None, "free_vram": None}, "memory unavailable"),
+            ({"vram": 24}, "24.00 GiB total; usage unavailable"),
+        ):
+            with (
+                self.subTest(memory=memory),
+                patch("app.cli.is_server_online", return_value=True),
+                patch(
+                    "app.cli.httpx.get",
+                    side_effect=[
+                        SimpleNamespace(json=lambda: {"running": False}),
+                        SimpleNamespace(json=lambda: {"name": "GPU", **memory}),
+                    ],
+                ),
+            ):
+                result = CliRunner().invoke(cli, ["status"])
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIn(expected, result.output)

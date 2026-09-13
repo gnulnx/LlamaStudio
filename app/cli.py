@@ -313,9 +313,15 @@ def status():
 
         # GPU info
         gpu_name = gpu_data.get("name", "Unknown GPU")
-        total_vram = gpu_data.get("total_vram", 0.0)
-        free_vram = gpu_data.get("free_vram", 0.0)
-        gpu_lbl = f"{gpu_name} ({free_vram:.2f} GB / {total_vram:.2f} GB free)"
+        total_vram = gpu_data.get("total_vram", gpu_data.get("vram"))
+        free_vram = gpu_data.get("free_vram")
+        if total_vram is not None and free_vram is not None:
+            memory = f"{free_vram:.2f} GiB / {total_vram:.2f} GiB free"
+        elif total_vram is not None:
+            memory = f"{total_vram:.2f} GiB total; usage unavailable"
+        else:
+            memory = "memory unavailable"
+        gpu_lbl = f"{gpu_name} ({memory})"
         table.add_row("[bold cyan]Primary GPU[/bold cyan]", gpu_lbl)
 
         console.print(

@@ -1,6 +1,8 @@
 import asyncio
 import os
+import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -17,15 +19,54 @@ class TestGPUUtils(unittest.TestCase):
     @patch("app.gpu_utils.subprocess.check_output")
     def test_linux_nvidia_success(self, mock_subprocess, mock_system):
         # Mock successful nvidia-smi command execution
-        mock_subprocess.return_value = "NVIDIA GeForce RTX 5090, 32768\n"
+        mock_subprocess.return_value = "NVIDIA GeForce RTX 5090, 32607, 25385\n"
 
         info = get_gpu_info()
         self.assertEqual(info["name"], "NVIDIA GeForce RTX 5090")
-        self.assertEqual(info["vram"], 32)
+        self.assertEqual(info["vram"], 31)
+        self.assertEqual(info["total_vram"], 32607 / 1024)
+        self.assertEqual(info["used_vram"], 25385 / 1024)
+        self.assertEqual(info["free_vram"], (32607 - 25385) / 1024)
         mock_subprocess.assert_called_once_with(
-            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,memory.used",
+                "--format=csv,noheader,nounits",
+            ],
             text=True,
+            timeout=2,
+            stderr=subprocess.DEVNULL,
         )
+
+    @patch("app.gpu_utils.platform.system", return_value="Linux")
+    @patch("app.gpu_utils.subprocess.check_output")
+    def test_nvidia_unknown_or_invalid_usage_is_not_zero(self, mock_subprocess, mock_system):
+        for used in ("[N/A]", "-1", "65536", "nan", "inf"):
+            with self.subTest(used=used):
+                mock_subprocess.return_value = f"NVIDIA RTX, 32768, {used}\n"
+                info = get_gpu_info()
+                self.assertEqual(info["total_vram"], 32)
+                self.assertIsNone(info["used_vram"])
+                self.assertIsNone(info["free_vram"])
+
+    @patch("app.gpu_utils.platform.system", return_value="Linux")
+    @patch("app.gpu_utils.subprocess.check_output")
+    def test_nvidia_reports_primary_device_not_sum_of_devices(self, mock_subprocess, mock_system):
+        mock_subprocess.return_value = "GPU 0, 24576, 1024\nGPU 1, 32768, 16384\n"
+        info = get_gpu_info()
+        self.assertEqual(info["name"], "GPU 0")
+        self.assertEqual(info["total_vram"], 24)
+        self.assertEqual(info["used_vram"], 1)
+
+    @patch("app.gpu_utils.platform.system", return_value="Linux")
+    @patch("glob.glob", return_value=[])
+    @patch(
+        "app.gpu_utils.subprocess.check_output", side_effect=subprocess.TimeoutExpired("probe", 2)
+    )
+    def test_unavailable_detection_does_not_report_guessed_capacity(self, *mocks):
+        info = get_gpu_info()
+        self.assertIsNone(info["total_vram"])
+        self.assertIsNone(info["used_vram"])
 
     @patch("app.gpu_utils.platform.system", return_value="Linux")
     @patch("app.gpu_utils.subprocess.check_output")
@@ -97,6 +138,10 @@ class TestGPUUtils(unittest.TestCase):
         info = get_gpu_info()
         self.assertEqual(info["name"], "Apple M3 Max")
         self.assertEqual(info["vram"], 32)
+        self.assertEqual(info["total_vram"], 32)
+        self.assertEqual(info["memory_kind"], "unified")
+        self.assertIsNone(info["used_vram"])
+        self.assertIsNone(info["free_vram"])
 
 
 class TestGPUEndpoint(unittest.TestCase):
@@ -107,7 +152,13 @@ class TestGPUEndpoint(unittest.TestCase):
         from app.main import get_gpu
 
         expected_response = {"name": "NVIDIA GeForce RTX 5090", "vram": 31}
-        mock_get_gpu_info.return_value = expected_response
+        event_loop_thread = threading.get_ident()
+
+        def probe():
+            self.assertNotEqual(threading.get_ident(), event_loop_thread)
+            return expected_response
+
+        mock_get_gpu_info.side_effect = probe
 
         response = asyncio.run(get_gpu())
         self.assertEqual(response, expected_response)

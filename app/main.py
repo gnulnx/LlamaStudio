@@ -105,10 +105,10 @@ async def server_status():
 
 @app.get("/api/gpu")
 async def get_gpu():
-    """Retrieve primary GPU name and VRAM (in GB)."""
+    """Retrieve primary GPU capacity and available live usage (in GiB)."""
     from .gpu_utils import get_gpu_info
 
-    return get_gpu_info()
+    return await asyncio.to_thread(get_gpu_info)
 
 
 @app.get("/api/server/logs")
