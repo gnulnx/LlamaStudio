@@ -46,7 +46,7 @@ class Palette:
                 raise ValueError(f"Palette color '{name}' must be a #RRGGBB hex color.")
         return cls(**data)
 
-    def theme(self) -> Theme:
+    def theme(self, dark: bool = True) -> Theme:
         return Theme(
             name="llamastudio",
             primary=self.primary,
@@ -59,7 +59,7 @@ class Palette:
             success=self.success,
             warning=self.warning,
             error=self.error,
-            dark=True,
+            dark=dark,
             text_alpha=1.0,
             variables={
                 **{f"studio-{key.replace('_', '-')}": value for key, value in asdict(self).items()},

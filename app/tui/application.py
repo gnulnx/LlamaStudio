@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import ClassVar
 from urllib.parse import urljoin, urlparse
 
@@ -19,6 +20,7 @@ from .discover import DiscoverView
 from .header import StudioHeader
 from .logs import LogsView
 from .models import ModelsView
+from .omarchy import omarchy_palette, theme_signature
 from .palette import Palette, load_palette
 from .widgets import Confirm, Help, StudioView
 
@@ -48,9 +50,16 @@ class StudioApp(App[None]):
         client: StudioClient | None = None,
         palette_path: str | None = None,
         palette: Palette | None = None,
+        follow_omarchy: bool = False,
     ):
         super().__init__()
         self.palette_path = palette_path
+        self.follow_omarchy = follow_omarchy
+        self._theme_signature = theme_signature() if follow_omarchy else None
+        dark = True
+        if palette is None and follow_omarchy:
+            with contextlib.suppress(ValueError):
+                palette, dark = omarchy_palette()
         self.palette = palette or load_palette(palette_path)
         self.client = client or StudioClient(base_url)
         self.base_url = base_url
@@ -62,17 +71,20 @@ class StudioApp(App[None]):
         self.connected = False
         self._last_download_state = "idle"
         self._views: dict[str, StudioView] = {}
-        self.register_theme(self.palette.theme())
+        self.register_theme(self.palette.theme(dark=dark))
         self.theme = "llamastudio"
 
-    def action_reload_palette(self) -> None:
+    def action_reload_palette(self, announce: bool = True) -> None:
         try:
-            palette = load_palette(self.palette_path)
+            if self.follow_omarchy:
+                palette, dark = omarchy_palette()
+            else:
+                palette, dark = load_palette(self.palette_path), True
         except (OSError, ValueError) as exc:
             self.notify(f"Palette unchanged: {exc}", severity="error", timeout=10)
             return
         self.palette = palette
-        self.register_theme(palette.theme())
+        self.register_theme(palette.theme(dark=dark))
         self.refresh_css(animate=False)
         self.update_header()
         # CSS updates existing widgets. Only pre-styled Rich text needs repainting;
@@ -83,7 +95,8 @@ class StudioApp(App[None]):
         if logs.loaded:
             logs.last_render = None
             logs.render_log_tail()
-        self.notify("Palette reloaded", timeout=2)
+        if announce:
+            self.notify("Palette reloaded", timeout=2)
 
     def compose(self) -> ComposeResult:
         yield StudioHeader(id="masthead")
@@ -114,6 +127,15 @@ class StudioApp(App[None]):
         self.action_view(self.current_view)
         self.tick()
         self.set_interval(3, self.tick)
+        if self.follow_omarchy:
+            # One sub-microsecond stat() per check, so a short interval costs nothing.
+            self.set_interval(0.25, self.check_omarchy_theme)
+
+    def check_omarchy_theme(self) -> None:
+        signature = theme_signature()
+        if signature is not None and signature != self._theme_signature:
+            self._theme_signature = signature
+            self.action_reload_palette(announce=False)
 
     def tick(self) -> None:
         if not self.is_running:

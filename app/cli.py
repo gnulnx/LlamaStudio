@@ -21,6 +21,7 @@ from rich.table import Table
 from app.tools import check_path_safe
 from app.tui.application import StudioApp
 from app.tui.demo import DemoError, record_demo
+from app.tui.omarchy import omarchy_detected
 from app.tui.palette import load_palette
 
 # Configure rich-click visual styling to match a premium terminal theme
@@ -207,8 +208,9 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: s
         raise click.BadParameter(
             "Use columns x rows, e.g. 180x48 (40-400 columns, 15-150 rows).", param_hint="--size"
         ) from exc
+    follow_omarchy = palette is None and omarchy_detected()
     try:
-        colors = load_palette(palette)
+        colors = None if follow_omarchy else load_palette(palette)
     except (OSError, ValueError) as exc:
         raise click.BadParameter(str(exc), param_hint="--palette") from exc
     if is_server_online():
@@ -224,7 +226,13 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: s
         config_loader.initialize_for_launch(Path.cwd())
         if not start_server_background(open_browser=False):
             raise click.ClickException("Could not start the LlamaStudio backend.")
-    application = StudioApp(API_BASE_URL, initial_view=view, palette_path=palette, palette=colors)
+    application = StudioApp(
+        API_BASE_URL,
+        initial_view=view,
+        palette_path=palette,
+        palette=colors,
+        follow_omarchy=follow_omarchy,
+    )
     if target:
         target.parent.mkdir(parents=True, exist_ok=True)
         asyncio.run(application.capture(str(target), (columns, rows)))

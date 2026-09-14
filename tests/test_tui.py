@@ -15,6 +15,7 @@ from app.tui.application import StudioApp
 from app.tui.chat import ChatView, MessageCard
 from app.tui.client import StudioClient
 from app.tui.discover import DiscoverView
+from app.tui.palette import load_palette
 from app.tui.widgets import Composer, Confirm
 
 
@@ -304,6 +305,47 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertIs(self.app.palette, original)
             self.assertIs(self.app.screen, dialog)
             self.assertIn("Palette unchanged: bad color", notify.call_args.args[0])
+
+    async def test_omarchy_theme_change_reloads_palette_without_a_keypress(self):
+        dark_theme = replace(load_palette(), background="#101018")
+        light_theme = replace(load_palette(), background="#eff1f5", text="#4c4f69")
+        signature = {"value": (1, 1)}
+        with (
+            patch("app.tui.application.omarchy_palette", return_value=(dark_theme, True)) as theme,
+            patch("app.tui.application.theme_signature", side_effect=lambda: signature["value"]),
+        ):
+            self.app = StudioApp(
+                "http://studio",
+                client=StudioClient("http://studio", transport=httpx.MockTransport(self.backend)),
+                follow_omarchy=True,
+            )
+            async with self.app.run_test(size=(120, 40)) as pilot:
+                await self.settle(pilot)
+                self.assertEqual(self.app.palette.background, "#101018")
+                theme.return_value = (light_theme, False)
+                signature["value"] = (2, 2)
+                with patch.object(self.app, "notify") as notify:
+                    # No manual call: the 0.25 s theme timer must pick the change up.
+                    await pilot.pause(0.6)
+                self.assertEqual(self.app.palette.background, "#eff1f5")
+                self.assertFalse(self.app.current_theme.dark)
+                self.assertEqual(self.app.screen.styles.background.hex.lower(), "#eff1f5")
+                notify.assert_not_called()
+
+    async def test_theme_watch_is_not_scheduled_without_omarchy(self):
+        with patch("app.tui.application.theme_signature") as signature:
+            async with self.app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause(0.6)
+        signature.assert_not_called()
+
+    async def test_unreadable_omarchy_theme_starts_with_bundled_palette(self):
+        with (
+            patch("app.tui.application.omarchy_palette", side_effect=ValueError("no theme")),
+            patch("app.tui.application.theme_signature", return_value=None),
+        ):
+            app = StudioApp("http://studio", follow_omarchy=True)
+        self.assertEqual(app.palette, load_palette())
+        self.assertTrue(app.current_theme.dark)
 
     async def test_download_requires_confirmation_and_survives_navigation(self):
         async with self.app.run_test(size=(180, 48)) as pilot:

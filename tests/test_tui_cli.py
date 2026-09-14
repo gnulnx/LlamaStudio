@@ -105,6 +105,31 @@ class TestTuiCommand(unittest.TestCase):
         palette.assert_called_once_with("colors.json")
         self.assertEqual(application.call_args.kwargs["palette_path"], "colors.json")
         self.assertIs(application.call_args.kwargs["palette"], palette.return_value)
+        self.assertFalse(application.call_args.kwargs["follow_omarchy"])
+
+    def test_omarchy_theme_is_followed_only_when_detected_and_no_palette_given(self):
+        for detected, args, follows in (
+            (True, ["tui"], True),
+            (True, ["tui", "--palette", "colors.json"], False),
+            (False, ["tui"], False),
+        ):
+            with (
+                self.subTest(detected=detected, args=args),
+                self.terminal(),
+                patch("app.cli.omarchy_detected", return_value=detected),
+                patch("app.cli.load_palette") as palette,
+                patch("app.cli.is_server_online", return_value=True),
+                patch("app.cli.wait_for_server_ready", return_value=True),
+                patch("app.cli.StudioApp") as application,
+            ):
+                result = CliRunner().invoke(cli, args)
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIs(application.call_args.kwargs["follow_omarchy"], follows)
+            if follows:
+                palette.assert_not_called()
+                self.assertIsNone(application.call_args.kwargs["palette"])
+            else:
+                self.assertIs(application.call_args.kwargs["palette"], palette.return_value)
 
     def test_invalid_palette_fails_without_starting_backend(self):
         for error in (ValueError("unknown color role"), OSError("cannot read palette")):

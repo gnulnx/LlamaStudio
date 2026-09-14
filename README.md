@@ -307,6 +307,10 @@ an error. `--palette` also works with `--screenshot`. Terminal color capability
 and `NO_COLOR` still apply; a palette cannot add true color to a terminal that
 does not support it.
 
+On [Omarchy](https://omarchy.org/), unless `--palette` is given, the TUI uses the
+active desktop theme and follows theme changes. Status colors stay fixed and light
+themes switch the TUI to light mode. Without Omarchy, nothing changes.
+
 This first version handles text chat; media input remains in the web app. Split
 GGUF shards are identified but not offered as individual model downloads: fetch
 the complete set from the linked Hub repository. The Discover memory bar compares
