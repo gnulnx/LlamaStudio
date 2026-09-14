@@ -21,7 +21,7 @@ from rich.table import Table
 from app.tools import check_path_safe
 from app.tui.application import StudioApp
 from app.tui.demo import DemoError, record_demo
-from app.tui.palette import load_palette
+from app.tui.themes import THEME_NAMES, create_theme_adapter, resolve_initial_theme
 
 # Configure rich-click visual styling to match a premium terminal theme
 click.rich_click.USE_RICH_MARKUP = True
@@ -171,6 +171,13 @@ def cli():
 )
 @click.option("--no-start", is_flag=True, help="Require an already running LlamaStudio backend.")
 @click.option(
+    "--theme",
+    type=click.Choice(THEME_NAMES),
+    default="default",
+    show_default=True,
+    help="TUI appearance. System falls back to Default without a supported adapter. F6 switches themes.",
+)
+@click.option(
     "--palette",
     type=click.Path(dir_okay=False),
     help="Override TUI colors with a workspace JSON palette. Ctrl+P reloads it.",
@@ -183,7 +190,14 @@ def cli():
 @click.option(
     "--size", default="180x48", show_default=True, help="Screenshot size in columns x rows."
 )
-def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: str | None) -> None:
+def tui(
+    view: str,
+    no_start: bool,
+    screenshot: str | None,
+    size: str,
+    palette: str | None,
+    theme: str,
+) -> None:
     """Open LlamaStudio's interactive terminal interface. Quitting keeps the backend running."""
     target = None
     if screenshot:
@@ -208,9 +222,12 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: s
             "Use columns x rows, e.g. 180x48 (40-400 columns, 15-150 rows).", param_hint="--size"
         ) from exc
     try:
-        colors = load_palette(palette)
+        adapter = create_theme_adapter(theme, palette)
+        resolved = resolve_initial_theme(adapter)
     except (OSError, ValueError) as exc:
-        raise click.BadParameter(str(exc), param_hint="--palette") from exc
+        raise click.BadParameter(
+            str(exc), param_hint="--palette" if palette else "--theme"
+        ) from exc
     if is_server_online():
         if not wait_for_server_ready(timeout=3):
             raise click.ClickException(
@@ -224,7 +241,14 @@ def tui(view: str, no_start: bool, screenshot: str | None, size: str, palette: s
         config_loader.initialize_for_launch(Path.cwd())
         if not start_server_background(open_browser=False):
             raise click.ClickException("Could not start the LlamaStudio backend.")
-    application = StudioApp(API_BASE_URL, initial_view=view, palette_path=palette, palette=colors)
+    application = StudioApp(
+        API_BASE_URL,
+        initial_view=view,
+        palette_path=palette,
+        theme_name=theme,
+        theme_adapter=adapter,
+        resolved_theme=resolved,
+    )
     if target:
         target.parent.mkdir(parents=True, exist_ok=True)
         asyncio.run(application.capture(str(target), (columns, rows)))

@@ -38,7 +38,7 @@ Screen {
 }
 .nav-button { width: 100%; height: 4; min-width: 0; border: none; background: transparent; color: $studio-muted; }
 .nav-button:hover { background: $studio-hover; }
-.nav-button.active { background: $studio-selection; color: $studio-text; text-style: bold; border-left: thick $studio-focus; }
+.nav-button.active { background: $studio-selection; color: $studio-on-accent; text-style: bold; border-left: thick $studio-focus; }
 #sections { width: 1fr; height: 1fr; }
 StudioView { width: 100%; height: 100%; }
 .panel { border: round $studio-border; background: $studio-panel; }
@@ -142,7 +142,7 @@ CollapsibleTitle { color: $studio-muted; }
 #download-cancel { min-width: 10; }
 #footer-bar { dock: bottom; height: 1; padding: 0 1; }
 Footer { dock: none; background: $studio-surface; color: $studio-muted; }
-Footer > .footer-key--key { background: $studio-selection-inactive; color: $studio-text; }
+Footer > .footer-key--key { background: $studio-selection-inactive; color: $studio-on-accent; }
 ModalScreen { align: center middle; background: $studio-background 65%; }
 .dialog { width: 64; max-width: 95%; height: auto; max-height: 90%; border: round $studio-focus; background: $studio-surface; padding: 1 2; }
 .dialog-title { color: $studio-accent; text-style: bold; margin-bottom: 1; }

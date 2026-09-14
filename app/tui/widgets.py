@@ -11,7 +11,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Input, Label, Markdown, Static, TextArea
+from textual.widgets import Button, DataTable, Input, Label, Markdown, Select, Static, TextArea
 
 from .client import APIError, StudioClient
 
@@ -117,6 +117,51 @@ class Rename(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ThemePicker(ModalScreen[str | None]):
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, current: str, notice: str = "", custom: bool = False):
+        super().__init__()
+        self.current, self.notice, self.custom = current, notice, custom
+
+    def compose(self) -> ComposeResult:
+        options = [
+            ("Default — LlamaStudio purple", "default"),
+            ("Light — pale surfaces, purple accents", "light"),
+            ("Dark — charcoal surfaces, neutral accents", "dark"),
+            ("Slate — slate surfaces, blue accents", "slate"),
+            ("System — follow your environment", "system"),
+        ]
+        if self.custom:
+            options.append(("Custom — your JSON palette", "custom"))
+        with Vertical(classes="dialog"):
+            yield Label("Appearance", classes="dialog-title")
+            yield Select(options, value=self.current, allow_blank=False, id="theme-choice")
+            yield Static("", id="theme-description")
+            yield Static(
+                "Applies to this TUI session. Use --theme when launching to choose a starting theme."
+            )
+            with Horizontal(classes="actions"):
+                yield Button("Cancel", id="theme-cancel")
+                yield Button("Apply", id="theme-apply", variant="primary")
+
+    @on(Select.Changed, "#theme-choice")
+    def describe(self, event: Select.Changed) -> None:
+        self.query_one("#theme-description", Static).update(
+            self.notice or "Uses Default when no supported system theme is available."
+            if event.value == "system"
+            else "Switch colors without losing your selection or chat draft."
+        )
+
+    @on(Button.Pressed, "#theme-apply")
+    def apply(self) -> None:
+        self.dismiss(str(self.query_one("#theme-choice", Select).value))
+
+    @on(Button.Pressed, "#theme-cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class Help(ModalScreen[None]):
     BINDINGS: ClassVar = [("escape", "dismiss", "Close"), ("f1", "dismiss", "Close")]
 
@@ -132,7 +177,8 @@ class Help(ModalScreen[None]):
                     "| Enter / Space | Activate the focused control |\n"
                     "| Escape | Back from details on a small screen |\n"
                     "| Ctrl+R | Refresh the current section |\n"
-                    "| Ctrl+P | Reload the color palette without restarting |\n"
+                    "| F6 | Choose Default, Light, Dark, Slate, or System appearance |\n"
+                    "| Ctrl+P | Reload the current theme without restarting |\n"
                     "| Ctrl+N | New conversation (in Chat) |\n"
                     "| Ctrl+S | Send a chat message |\n"
                     "| Enter (chat editor) | New line |\n"

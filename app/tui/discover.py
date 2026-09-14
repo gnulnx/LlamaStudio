@@ -6,6 +6,7 @@ import asyncio
 import re
 from typing import Any
 
+from rich.align import Align
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -31,17 +32,17 @@ from .widgets import Confirm, LibraryTable, StudioView, size_label
 def capabilities(model: dict[str, Any], palette: Palette) -> Text:
     tags = set(model.get("tags") or [])
     pipeline = model.get("pipeline_tag") or ""
-    badges = Text(no_wrap=True, overflow="ellipsis")
+    labels = Text(no_wrap=True, overflow="ellipsis")
     for enabled, label, color in (
         (bool(tags & {"vision", "multimodal"}) or "image" in pipeline, "Vision", palette.warning),
         ("reasoning" in tags, "Reasoning", palette.teal),
         (bool(tags & {"tools", "tool-use", "function-calling"}), "Tools", palette.warning),
     ):
         if enabled:
-            if badges:
-                badges.append(" ")
-            badges.append(f" {label} ", style=f"bold {color} on {palette.surface}")
-    return badges if badges else Text(" Text ", style=f"{palette.muted} on {palette.surface}")
+            if labels:
+                labels.append("  ")
+            labels.append(label, style=f"bold {color}")
+    return labels if labels else Text("Text", style=palette.muted)
 
 
 class DiscoverView(StudioView):
@@ -70,7 +71,6 @@ class DiscoverView(StudioView):
                 id="hub-table",
                 cursor_type="row",
                 zebra_stripes=True,
-                cursor_foreground_priority="renderable",
             )
             yield Static("Arrows Navigate   Enter Details   Tab Next control", classes="list-hint")
         with VerticalScroll(classes="detail panel", can_focus=True):
@@ -151,6 +151,7 @@ class DiscoverView(StudioView):
         table.add_column("Likes", width=7)
         if width >= 185:
             table.add_column("Capabilities", width=28)
+        row_height = 3 if self.app.size.height >= 35 else 1
         for model in self.models:
             repo = model["id"]
             row: list[Any] = [Text(repo.split("/")[-1], overflow="ellipsis", no_wrap=True)]
@@ -163,7 +164,11 @@ class DiscoverView(StudioView):
             row.extend([f"{model.get('downloads', 0):,}", f"{model.get('likes', 0):,}"])
             if width >= 185:
                 row.append(capabilities(model, self.app.palette))
-            table.add_row(*row, key=repo, height=2 if self.app.size.height >= 35 else 1)
+            table.add_row(
+                *(Align(cell, vertical="middle", height=row_height) for cell in row),
+                key=repo,
+                height=row_height,
+            )
         if self.repo_id in {key.value for key in table.rows}:
             table.move_cursor(row=table.get_row_index(self.repo_id))
 
@@ -174,7 +179,12 @@ class DiscoverView(StudioView):
         for model in self.models:
             if model["id"] in table.rows:
                 table.update_cell_at(
-                    (table.get_row_index(model["id"]), 4), capabilities(model, self.app.palette)
+                    (table.get_row_index(model["id"]), 4),
+                    Align(
+                        capabilities(model, self.app.palette),
+                        vertical="middle",
+                        height=table.rows[model["id"]].height,
+                    ),
                 )
 
     @on(DataTable.RowHighlighted, "#hub-table")

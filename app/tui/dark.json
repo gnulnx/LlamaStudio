@@ -1,0 +1,21 @@
+{
+  "background": "#101010",
+  "panel": "#191919",
+  "surface": "#242424",
+  "hover": "#303030",
+  "primary": "#505050",
+  "focus": "#c4c4c4",
+  "selection": "#505050",
+  "selection_inactive": "#383838",
+  "border": "#626262",
+  "border_muted": "#424242",
+  "text": "#f0f0f0",
+  "muted": "#bcbcbc",
+  "dim": "#969696",
+  "accent": "#dedede",
+  "success": "#75d99c",
+  "teal": "#67d8ca",
+  "warning": "#f1cb70",
+  "error": "#ff98a8",
+  "on_accent": "#ffffff"
+}

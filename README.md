@@ -283,7 +283,66 @@ used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
 `lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
 The backend's filesystem and GPU are the ones shown in the TUI.
 
-All TUI colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
+**Colors look wrong over SSH?** SSH may pass `TERM=xterm-256color` without
+`COLORTERM=truecolor`, causing the TUI to use a reduced 256-color palette. Dark
+surfaces can collapse to black and accents can shift noticeably. If your local
+terminal supports true color (for example, iTerm2), launch the TUI on the remote
+host with:
+
+```bash
+COLORTERM=truecolor lls tui
+```
+
+This also works with `--theme default`, `--theme slate`, or another theme choice.
+Set the variable in the remote shell where `lls` runs; setting it only in your
+local shell does not ensure SSH forwards it. Use this override only with a
+true-color-capable terminal. Native sessions may look correct while SSH sessions
+from the same terminal look different.
+
+Choose an appearance at launch, or press **F6** to open the Appearance chooser:
+
+```bash
+lls tui --theme default  # Original LlamaStudio purple (the default)
+lls tui --theme light    # Pale surfaces with purple accents
+lls tui --theme dark     # Charcoal surfaces with neutral accents
+lls tui --theme slate    # Named preset: slate surfaces with blue accents
+lls tui --theme system   # System adapter, native light/dark preference; Default if unsupported
+```
+
+Selections in the chooser apply to the current TUI session; they are not saved as
+a desktop-wide preference. **Ctrl+P** reloads the selected source. Switching or
+reloading preserves your current section, selection, and unfinished chat draft.
+`--theme` also works with `--screenshot`.
+
+System follows the native **light/dark preference**, using the bundled Light or
+Dark palette. On GNOME-family desktops (including GNOME-based Pop!_OS), it reads
+`org.gnome.desktop.interface color-scheme` through `gsettings`. An explicit
+`prefer-light` or `prefer-dark` wins; `default` or a missing legacy key falls back
+to `gtk-theme` (for example, `Pop-dark`). Theme names containing a separate `dark`
+component select Dark; other names select Light. This is a naming convention,
+not an attempt to parse arbitrary GTK stylesheet colors.
+
+On macOS, System reads the global `AppleInterfaceStyle` preference through
+`defaults`; an absent key means Light. Both adapters reread the effective
+preference every two seconds while System is selected, including changes made by
+automatic appearance scheduling. Reads run off the UI thread, have bounded
+timeouts, and never modify desktop settings or request automation permission.
+Unsupported/headless environments display a notice and use Default without a
+polling timer. Over SSH, preferences belong to the host running the TUI.
+
+Slate is the first named preset, preserving the original slate-blue Dark design.
+
+On [Omarchy](https://omarchy.org/), System uses the active desktop theme's full
+palette instead of bundled Light or Dark, detected ahead of the native adapters.
+It activates only when `~/.local/state/omarchy/current/theme/colors.toml` exists
+and `omarchy-theme-color` is on `PATH`, and reads colors only through that command
+with the same bounded timeout. Status colors (`success`, `teal`, `warning`,
+`error`) keep their Default values, and the theme's `mode` selects light or dark.
+The adapter checks the theme file every quarter second, reruns the command only
+after Omarchy replaces that file, and keeps the current theme while a switch is
+in progress.
+
+Default colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
 stylesheet, header, capability badges, model status, and logs. Edit that file and
 press **Ctrl+P** in the TUI to reload it without restarting, refetching model lists,
 or losing a chat draft. Purple marks actions/selections, green and teal mark
@@ -306,6 +365,30 @@ six-digit `#RRGGBB` values. Invalid edits keep the last working palette and show
 an error. `--palette` also works with `--screenshot`. Terminal color capability
 and `NO_COLOR` still apply; a palette cannot add true color to a terminal that
 does not support it.
+
+Custom colors inherit the selected bundled theme and its light/dark mode:
+`lls tui --theme light --palette colors.json`. An explicit palette wins over
+System, bypasses system detection, and uses Default as its base. F6 also offers
+Custom when launched with `--palette`, so you can compare it against the bundled
+themes and return to your file.
+
+Theme adapters are defined in [app/tui/themes.py](app/tui/themes.py). Each resolves
+a validated `ResolvedTheme` containing palette, dark-mode flag, source, and an
+optional user-facing notice. Bundled and custom themes use this same contract.
+To add a system integration, register an ordered detection factory in
+`SYSTEM_ADAPTERS`; it returns an adapter when supported, otherwise `None`.
+Detection runs only when System is selected. An adapter may request polling with
+`refresh_interval`; `None` means no background work. The adapter owns bounded I/O
+and revision caching, and raises `OSError` or `ValueError` on an unreadable source.
+It must not touch widgets, start its own timer, or mutate application settings.
+Use the workspace path validator for user-provided palette paths; any platform
+integration's fixed system-file access must be explicitly scoped and reviewed.
+
+The shell serializes live resolution off the UI thread, ignores obsolete results,
+and applies CSS and inline colors together. Initial system-source failure falls
+back to Default; live failure retains the last good theme, reports the error once,
+and retries on subsequent polls. Leaving System stops its timer. Static sources
+reload with Ctrl+P. This keeps platform-specific settings out of the CLI and views.
 
 This first version handles text chat; media input remains in the web app. Split
 GGUF shards are identified but not offered as individual model downloads: fetch

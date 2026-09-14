@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import unittest
 from dataclasses import replace
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from app.tui.application import StudioApp
 from app.tui.chat import ChatView, MessageCard
 from app.tui.client import StudioClient
 from app.tui.discover import DiscoverView
+from app.tui.themes import BundledThemeAdapter, ResolvedTheme, ThemeAdapter
 from app.tui.widgets import Composer, Confirm
 
 
@@ -198,6 +200,9 @@ class Backend:
 
 class TestTUI(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        system = patch("app.tui.themes.SYSTEM_ADAPTERS", ())
+        system.start()
+        self.addCleanup(system.stop)
         self.backend = Backend()
         self.app = StudioApp(
             "http://studio",
@@ -262,8 +267,13 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
                 old, background="#080810", surface="#19192f", success="#33ee88", warning="#ffcc33"
             )
             calls_before = list(self.backend.calls)
-            with patch("app.tui.application.load_palette", return_value=updated):
+            with patch.object(
+                self.app.theme_adapter,
+                "resolve",
+                return_value=ResolvedTheme(updated, True, "default"),
+            ):
                 await pilot.press("ctrl+p")
+                await self.app.workers.wait_for_complete()
                 await pilot.pause()
             self.assertIs(self.app.palette, updated)
             self.assertEqual(self.app.screen.styles.background.hex.lower(), updated.background)
@@ -275,7 +285,7 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
                 self.app.query_one("#hub-quant", Select).value, "tiny-00001-of-00002.gguf"
             )
             badge = self.app.query_one("#hub-table", DataTable).get_cell_at((0, 4))
-            self.assertTrue(any(updated.warning in span.style for span in badge.spans))
+            self.assertTrue(any(updated.warning in span.style for span in badge.renderable.spans))
             state_colors = [
                 segment.style.color.name
                 for segment in self.app.query_one("#connection").render_line(0)
@@ -296,14 +306,105 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             dialog = self.app.screen
             original = self.app.palette
             with (
-                patch("app.tui.application.load_palette", side_effect=ValueError("bad color")),
+                patch.object(
+                    self.app.theme_adapter, "resolve", side_effect=ValueError("bad color")
+                ),
                 patch.object(self.app, "notify") as notify,
             ):
                 await pilot.press("ctrl+p")
+                await self.app.workers.wait_for_complete()
                 await pilot.pause()
             self.assertIs(self.app.palette, original)
             self.assertIs(self.app.screen, dialog)
-            self.assertIn("Palette unchanged: bad color", notify.call_args.args[0])
+            self.assertIn("Theme unchanged: bad color", notify.call_args.args[0])
+
+    async def test_theme_picker_switches_mode_preserves_draft_and_cancels(self):
+        async with self.app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot)
+            await pilot.press("f4")
+            await self.settle(pilot)
+            editor = self.app.query_one("#chat-input", Composer)
+            editor.load_text("Keep this draft through light and dark")
+            for name in ("light", "dark", "slate", "system", "default"):
+                await pilot.press("f6")
+                self.app.screen.query_one("#theme-choice", Select).value = name
+                await pilot.click("#theme-apply")
+                await self.app.workers.wait_for_complete()
+                await pilot.pause()
+                self.assertEqual(self.app.theme_name, name)
+                self.assertEqual(self.app.current_theme.dark, name != "light")
+                self.assertEqual(self.app.has_class("-light-mode"), name == "light")
+                self.assertEqual(editor.text, "Keep this draft through light and dark")
+                self.assertEqual(self.app.current_view, "chat")
+                self.assertIsNone(self.app._theme_timer)
+            await pilot.press("f6")
+            self.app.screen.query_one("#theme-choice", Select).value = "light"
+            await pilot.press("escape")
+            self.assertEqual(self.app.theme_name, "default")
+
+    async def test_system_adapter_auto_refresh_failure_recovery_and_stop(self):
+        class Source(ThemeAdapter):
+            refresh_interval = 0.1
+
+            def __init__(self):
+                self.name = "dark"
+                self.fail = False
+                self.thread = None
+
+            def resolve(self):
+                self.thread = threading.get_ident()
+                if self.fail:
+                    raise ValueError("theme file being replaced")
+                return BundledThemeAdapter(self.name).resolve()
+
+        source = Source()
+        with patch("app.tui.themes.SYSTEM_ADAPTERS", (lambda: source,)):
+            async with self.app.run_test(size=(80, 24)) as pilot:
+                await self.settle(pilot)
+                self.app.select_theme("system")
+                await self.app.workers.wait_for_complete()
+                self.assertIsNotNone(self.app._theme_timer)
+                source.name = "light"
+                await pilot.pause(0.3)
+                self.assertFalse(self.app.current_theme.dark)
+                self.assertNotEqual(source.thread, threading.get_ident())
+                good = self.app.palette
+                source.fail = True
+                with patch.object(self.app, "notify") as notify:
+                    await pilot.pause(0.4)
+                    self.assertIs(self.app.palette, good)
+                    notify.assert_called_once()
+                source.fail = False
+                source.name = "dark"
+                await pilot.pause(0.3)
+                self.assertTrue(self.app.current_theme.dark)
+                self.app.select_theme("default")
+                await self.app.workers.wait_for_complete()
+                self.assertIsNone(self.app._theme_timer)
+
+    async def test_slow_theme_cannot_overwrite_newer_selection_or_block_input(self):
+        started, release = threading.Event(), threading.Event()
+
+        class SlowSource(ThemeAdapter):
+            def resolve(self):
+                started.set()
+                if not release.wait(5):
+                    raise ValueError("test source timed out")
+                return BundledThemeAdapter("light").resolve()
+
+        async with self.app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot)
+            self.app.request_theme(SlowSource(), "system")
+            try:
+                self.assertTrue(await asyncio.to_thread(started.wait, 2))
+                await pilot.press("f4")
+                self.assertEqual(self.app.current_view, "chat")
+                self.app.select_theme("dark")
+            finally:
+                release.set()
+            await self.app.workers.wait_for_complete()
+            self.assertEqual(self.app.theme_name, "dark")
+            self.assertTrue(self.app.current_theme.dark)
 
     async def test_download_requires_confirmation_and_survives_navigation(self):
         async with self.app.run_test(size=(180, 48)) as pilot:
