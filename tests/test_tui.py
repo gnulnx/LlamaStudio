@@ -285,7 +285,7 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
                 self.app.query_one("#hub-quant", Select).value, "tiny-00001-of-00002.gguf"
             )
             badge = self.app.query_one("#hub-table", DataTable).get_cell_at((0, 4))
-            self.assertTrue(any(updated.warning in span.style for span in badge.spans))
+            self.assertTrue(any(updated.warning in span.style for span in badge.renderable.spans))
             state_colors = [
                 segment.style.color.name
                 for segment in self.app.query_one("#connection").render_line(0)
