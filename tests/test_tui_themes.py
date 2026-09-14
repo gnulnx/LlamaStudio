@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+import os
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from test_tui_palette import contrast
@@ -12,15 +15,23 @@ from app.tui.application import StudioApp
 from app.tui.palette import load_palette
 from app.tui.themes import (
     BUNDLED_THEME_NAMES,
+    SYSTEM_ADAPTERS,
     THEME_NAMES,
     BundledThemeAdapter,
     GtkThemeAdapter,
     MacOSThemeAdapter,
+    OmarchyThemeAdapter,
     ThemeAdapter,
     create_theme_adapter,
     detect_gtk_theme,
     detect_macos_theme,
+    detect_omarchy_theme,
     resolve_initial_theme,
+)
+
+OMARCHY_OUTPUT = (
+    "accent\t#686868\nbackground\t#222222\nforeground\t#ffffff\n"
+    "selection_background\t#686868\nselection_foreground\t#ffffff\nmode\tdark\n"
 )
 
 
@@ -202,3 +213,87 @@ class TestThemes(unittest.TestCase):
                 self.assertIn("bad theme", resolve_initial_theme(adapter).notice)
                 with self.assertRaisesRegex(ValueError, "bad theme"):
                     adapter.resolve()
+
+
+class TestOmarchyTheme(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.colors = Path(tmp.name) / "colors.toml"
+        self.colors.write_text('background = "#222222"\n')
+        path = patch("app.tui.themes.OMARCHY_THEME_COLORS", self.colors)
+        path.start()
+        self.addCleanup(path.stop)
+
+    def resolver(self, stdout=OMARCHY_OUTPUT, status=0):
+        return patch(
+            "app.tui.themes.subprocess.run",
+            return_value=subprocess.CompletedProcess([], status, stdout, ""),
+        )
+
+    def test_detected_first_and_only_with_theme_file_and_resolver_command(self):
+        self.assertIs(SYSTEM_ADAPTERS[0], detect_omarchy_theme)
+        with patch("app.tui.themes.shutil.which", return_value=None):
+            self.assertIsNone(detect_omarchy_theme())
+        with patch("app.tui.themes.shutil.which", return_value="/usr/bin/omarchy-theme-color"):
+            self.assertIsInstance(detect_omarchy_theme(), OmarchyThemeAdapter)
+            self.colors.unlink()
+            self.assertIsNone(detect_omarchy_theme())
+
+    def test_maps_theme_keeps_status_colors_and_reports_mode(self):
+        default = load_palette()
+        with self.resolver() as run:
+            resolved = OmarchyThemeAdapter("omarchy-theme-color").resolve()
+        self.assertEqual(
+            run.call_args.args[0], ["omarchy-theme-color", "--file", str(self.colors), "--all"]
+        )
+        self.assertEqual(run.call_args.kwargs["timeout"], 2)
+        self.assertTrue(resolved.dark)
+        self.assertEqual(resolved.source, "omarchy")
+        palette = resolved.palette
+        self.assertEqual(
+            (palette.background, palette.text, palette.primary, palette.panel),
+            ("#222222", "#ffffff", "#686868", "#2d2d2d"),
+        )
+        for role in ("success", "teal", "warning", "error"):
+            self.assertEqual(getattr(palette, role), getattr(default, role))
+        with self.resolver(OMARCHY_OUTPUT.replace("mode\tdark", "mode\tlight")):
+            self.assertFalse(OmarchyThemeAdapter("omarchy-theme-color").resolve().dark)
+
+    def test_reruns_command_only_after_omarchy_replaces_the_file(self):
+        adapter = OmarchyThemeAdapter("omarchy-theme-color")
+        with self.resolver() as run:
+            first = adapter.resolve()
+            self.assertIs(adapter.resolve(), first)
+            # Omarchy removes the theme directory before moving the new one in.
+            self.colors.unlink()
+            self.assertIs(adapter.resolve(), first)
+            self.colors.write_text('background = "#eff1f5"\n')
+            later = self.colors.stat().st_mtime_ns + 1_000_000_000
+            os.utime(self.colors, ns=(later, later))
+            adapter.resolve()
+        self.assertEqual(run.call_count, 2)
+
+    def test_unusable_theme_raises(self):
+        failures = (
+            patch("app.tui.themes.subprocess.run", side_effect=FileNotFoundError()),
+            self.resolver(status=1),
+            self.resolver("background\t#222222\n"),
+            self.resolver(OMARCHY_OUTPUT.replace("#222222", "#22222280")),
+            self.resolver(OMARCHY_OUTPUT.replace("#686868", "rgba(104,104,104,1)")),
+        )
+        for failure in failures:
+            with self.subTest(failure=failure), failure, self.assertRaises(ValueError):
+                OmarchyThemeAdapter("omarchy-theme-color").resolve()
+        self.colors.unlink()
+        with self.assertRaises(OSError):
+            OmarchyThemeAdapter("omarchy-theme-color").resolve()
+
+    def test_system_uses_omarchy_and_its_refresh_interval(self):
+        with (
+            patch("app.tui.themes.shutil.which", return_value="/usr/bin/omarchy-theme-color"),
+            self.resolver(),
+        ):
+            system = create_theme_adapter("system")
+            self.assertEqual(system.resolve().source, "omarchy")
+        self.assertEqual(system.refresh_interval, OmarchyThemeAdapter.refresh_interval)

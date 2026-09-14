@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from importlib.resources import files
+from pathlib import Path
 
 from .palette import Palette, _read_colors, load_palette
 
@@ -174,9 +175,77 @@ def detect_gtk_theme() -> ThemeAdapter | None:
     return None
 
 
+# Omarchy rewrites this file (new inode and mtime) on every theme change.
+OMARCHY_THEME_COLORS = (
+    Path.home() / ".local" / "state" / "omarchy" / "current" / "theme" / "colors.toml"
+)
+
+
+def _mix(start: str, end: str, amount: float) -> str:
+    pairs = ((int(start[i : i + 2], 16), int(end[i : i + 2], 16)) for i in (1, 3, 5))
+    return "#" + "".join(f"{round(a + (b - a) * amount):02x}" for a, b in pairs)
+
+
+class OmarchyThemeAdapter(ThemeAdapter):
+    """Use the active Omarchy theme's full palette; status colors stay at Default."""
+
+    refresh_interval = 0.25
+
+    def __init__(self, command: str):
+        self.command = command
+        self._revision: tuple[int, int] | None = None
+        self._resolved: ResolvedTheme | None = None
+
+    def resolve(self) -> ResolvedTheme:
+        try:
+            stat = OMARCHY_THEME_COLORS.stat()
+        except OSError:
+            # Omarchy removes the theme directory before moving the new one in.
+            if self._resolved is not None:
+                return self._resolved
+            raise
+        revision = (stat.st_ino, stat.st_mtime_ns)
+        if self._resolved is None or revision != self._revision:
+            self._resolved, self._revision = self._read(), revision
+        return self._resolved
+
+    def _read(self) -> ResolvedTheme:
+        result = _read_setting([self.command, "--file", str(OMARCHY_THEME_COLORS), "--all"])
+        theme = dict(line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+        if result.returncode != 0 or not {"background", "foreground", "accent"} <= theme.keys():
+            raise ValueError("Could not read Omarchy theme colors.")
+        background, foreground, accent = theme["background"], theme["foreground"], theme["accent"]
+        roles = {
+            "background": background,
+            "panel": _mix(background, foreground, 0.05),
+            "surface": _mix(background, foreground, 0.09),
+            "hover": _mix(background, accent, 0.20),
+            "primary": accent,
+            "focus": _mix(accent, foreground, 0.20),
+            "selection": theme.get("selection_background", accent),
+            "selection_inactive": _mix(background, accent, 0.25),
+            "border": accent,
+            "border_muted": _mix(background, foreground, 0.18),
+            "text": foreground,
+            "muted": _mix(foreground, background, 0.34),
+            "dim": _mix(foreground, background, 0.52),
+            "accent": _mix(accent, foreground, 0.30),
+            "on_accent": theme.get("selection_foreground", foreground),
+        }
+        palette = Palette.from_mapping({**asdict(load_palette()), **roles})
+        return ResolvedTheme(palette, theme.get("mode") != "light", "omarchy")
+
+
+def detect_omarchy_theme() -> ThemeAdapter | None:
+    if OMARCHY_THEME_COLORS.is_file() and (command := shutil.which("omarchy-theme-color")):
+        return OmarchyThemeAdapter(command)
+    return None
+
+
 # Ordered, explicit extension point. Specific full-palette integrations can be
 # registered before these native light/dark adapters. Only System detects them.
 SYSTEM_ADAPTERS: tuple[Callable[[], ThemeAdapter | None], ...] = (
+    detect_omarchy_theme,
     detect_macos_theme,
     detect_gtk_theme,
 )
