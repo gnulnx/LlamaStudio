@@ -315,8 +315,16 @@ Unsupported/headless environments display a notice and use Default without a
 polling timer. Over SSH, preferences belong to the host running the TUI.
 
 Slate is the first named preset, preserving the original slate-blue Dark design.
-Future full-palette integrations such as Omarchy can register ahead of the generic
-light/dark adapters, without changing the default launch appearance.
+
+On [Omarchy](https://omarchy.org/), System uses the active desktop theme's full
+palette instead of bundled Light or Dark, detected ahead of the native adapters.
+It activates only when `~/.local/state/omarchy/current/theme/colors.toml` exists
+and `omarchy-theme-color` is on `PATH`, and reads colors only through that command
+with the same bounded timeout. Status colors (`success`, `teal`, `warning`,
+`error`) keep their Default values, and the theme's `mode` selects light or dark.
+The adapter checks the theme file every quarter second, reruns the command only
+after Omarchy replaces that file, and keeps the current theme while a switch is
+in progress.
 
 Default colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
 stylesheet, header, capability badges, model status, and logs. Edit that file and
