@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from rich.text import Text
@@ -13,6 +14,14 @@ from textual.widgets import Button, Checkbox, DataTable, Input, Label, Select, S
 
 from .client import APIError
 from .widgets import Confirm, LibraryTable, StudioView
+
+
+def _resolved_path(path: str) -> str:
+    """Resolve symlinks (e.g. Hugging Face hub cache snapshots -> blobs) for profile lookups."""
+    try:
+        return str(Path(path).expanduser().resolve())
+    except OSError:
+        return str(Path(path).expanduser())
 
 
 class ModelsView(StudioView):
@@ -162,7 +171,7 @@ class ModelsView(StudioView):
         if not model:
             return
         self.selected_path = path
-        profile = self.profiles.get(path) or {}
+        profile = self.profiles.get(path) or self.profiles.get(_resolved_path(path)) or {}
         self.query_one("#local-title", Label).update(Text(model["name"]))
         self.query_one("#local-info", Static).update(
             Text(f"{model['size_human']} / {model.get('quant', 'GGUF')}\n{path}")
@@ -184,7 +193,11 @@ class ModelsView(StudioView):
         self.update_status()
 
     def edited_profile(self) -> dict[str, Any]:
-        profile = deepcopy(self.profiles.get(self.selected_path) or {})
+        profile = deepcopy(
+            self.profiles.get(self.selected_path)
+            or self.profiles.get(_resolved_path(self.selected_path))
+            or {}
+        )
         for widget, key, minimum in (
             ("context", "ctx_size", 128),
             ("layers", "gpu_layers", -1),
