@@ -95,23 +95,24 @@ class TestTuiCommand(unittest.TestCase):
     def test_custom_palette_reaches_app_and_is_loaded_before_backend_start(self):
         with (
             self.terminal(),
-            patch("app.cli.load_palette") as palette,
+            patch("app.cli.resolve_initial_theme") as resolved,
             patch("app.cli.is_server_online", return_value=True),
             patch("app.cli.wait_for_server_ready", return_value=True),
             patch("app.cli.StudioApp") as application,
         ):
             result = CliRunner().invoke(cli, ["tui", "--palette", "colors.json"])
         self.assertEqual(result.exit_code, 0, result.output)
-        palette.assert_called_once_with("colors.json")
+        adapter = resolved.call_args.args[0]
+        self.assertEqual(adapter.path, "colors.json")
         self.assertEqual(application.call_args.kwargs["palette_path"], "colors.json")
-        self.assertIs(application.call_args.kwargs["palette"], palette.return_value)
+        self.assertIs(application.call_args.kwargs["resolved_theme"], resolved.return_value)
 
     def test_invalid_palette_fails_without_starting_backend(self):
         for error in (ValueError("unknown color role"), OSError("cannot read palette")):
             with (
                 self.subTest(error=error),
                 self.terminal(),
-                patch("app.cli.load_palette", side_effect=error),
+                patch("app.cli.resolve_initial_theme", side_effect=error),
                 patch("app.cli.start_server_background") as start,
             ):
                 result = CliRunner().invoke(cli, ["tui", "--palette", "colors.json"])
@@ -119,6 +120,27 @@ class TestTuiCommand(unittest.TestCase):
             self.assertIn("--palette", result.output)
             self.assertIn(str(error), result.output)
             start.assert_not_called()
+
+    def test_theme_choice_reaches_application_with_resolved_mode(self):
+        for name in ("default", "light", "dark", "system"):
+            with (
+                self.subTest(name=name),
+                self.terminal(),
+                patch("app.cli.is_server_online", return_value=True),
+                patch("app.cli.wait_for_server_ready", return_value=True),
+                patch("app.cli.StudioApp") as application,
+            ):
+                result = CliRunner().invoke(cli, ["tui", "--theme", name])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(application.call_args.kwargs["theme_name"], name)
+            self.assertEqual(application.call_args.kwargs["resolved_theme"].dark, name != "light")
+
+    def test_unknown_theme_fails_before_starting_backend(self):
+        with patch("app.cli.start_server_background") as start:
+            result = CliRunner().invoke(cli, ["tui", "--theme", "omarchy"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--theme", result.output)
+        start.assert_not_called()
 
 
 class TestStatusMemory(unittest.TestCase):

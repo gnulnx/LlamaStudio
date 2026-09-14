@@ -46,7 +46,7 @@ class Palette:
                 raise ValueError(f"Palette color '{name}' must be a #RRGGBB hex color.")
         return cls(**data)
 
-    def theme(self) -> Theme:
+    def theme(self, *, dark: bool = True) -> Theme:
         return Theme(
             name="llamastudio",
             primary=self.primary,
@@ -59,7 +59,7 @@ class Palette:
             success=self.success,
             warning=self.warning,
             error=self.error,
-            dark=True,
+            dark=dark,
             text_alpha=1.0,
             variables={
                 **{f"studio-{key.replace('_', '-')}": value for key, value in asdict(self).items()},
@@ -82,13 +82,17 @@ def _read_colors(source: str) -> dict:
     return data
 
 
-def load_palette(path: str | None = None) -> Palette:
+def load_palette(path: str | None = None, *, base: Palette | None = None) -> Palette:
     """Load the bundled palette, optionally overridden by a workspace JSON file.
 
     Revalidate user paths on every reload, including symlink destinations. Bundled
     data is an application resource so installed wheels also work from any cwd.
     """
-    colors = _read_colors(files("app.tui").joinpath("palette.json").read_text(encoding="utf-8"))
+    colors = (
+        asdict(base)
+        if base is not None
+        else _read_colors(files("app.tui").joinpath("palette.json").read_text(encoding="utf-8"))
+    )
     if path is not None:
         colors.update(_read_colors(check_path_safe(path).read_text(encoding="utf-8")))
     return Palette.from_mapping(colors)

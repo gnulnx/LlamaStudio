@@ -283,7 +283,26 @@ used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
 `lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
 The backend's filesystem and GPU are the ones shown in the TUI.
 
-All TUI colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
+Choose an appearance at launch, or press **F6** to open the Appearance chooser:
+
+```bash
+lls tui --theme default  # Original LlamaStudio purple (the default)
+lls tui --theme light    # Pale surfaces with purple accents
+lls tui --theme dark     # Slate surfaces with blue accents
+lls tui --theme system   # System adapter, with an explicit Default fallback
+```
+
+Selections in the chooser apply to the current TUI session; they are not saved as
+a desktop-wide preference. **Ctrl+P** reloads the selected source. Switching or
+reloading preserves your current section, selection, and unfinished chat draft.
+`--theme` also works with `--screenshot`.
+
+System is an extension point in this release: **no platform adapters are bundled
+yet**, so it displays a notice and uses Default, without a polling timer. It does
+not claim to detect desktop or terminal colors. Future integrations such as Omarchy
+belong behind this choice; they must not change the default launch appearance.
+
+Default colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
 stylesheet, header, capability badges, model status, and logs. Edit that file and
 press **Ctrl+P** in the TUI to reload it without restarting, refetching model lists,
 or losing a chat draft. Purple marks actions/selections, green and teal mark
@@ -306,6 +325,30 @@ six-digit `#RRGGBB` values. Invalid edits keep the last working palette and show
 an error. `--palette` also works with `--screenshot`. Terminal color capability
 and `NO_COLOR` still apply; a palette cannot add true color to a terminal that
 does not support it.
+
+Custom colors inherit the selected bundled theme and its light/dark mode:
+`lls tui --theme light --palette colors.json`. An explicit palette wins over
+System, bypasses system detection, and uses Default as its base. F6 also offers
+Custom when launched with `--palette`, so you can compare it against the bundled
+themes and return to your file.
+
+Theme adapters are defined in [app/tui/themes.py](app/tui/themes.py). Each resolves
+a validated `ResolvedTheme` containing palette, dark-mode flag, source, and an
+optional user-facing notice. Bundled and custom themes use this same contract.
+To add a system integration, register an ordered detection factory in
+`SYSTEM_ADAPTERS`; it returns an adapter when supported, otherwise `None`.
+Detection runs only when System is selected. An adapter may request polling with
+`refresh_interval`; `None` means no background work. The adapter owns bounded I/O
+and revision caching, and raises `OSError` or `ValueError` on an unreadable source.
+It must not touch widgets, start its own timer, or mutate application settings.
+Use the workspace path validator for user-provided palette paths; any platform
+integration's fixed system-file access must be explicitly scoped and reviewed.
+
+The shell serializes live resolution off the UI thread, ignores obsolete results,
+and applies CSS and inline colors together. Initial system-source failure falls
+back to Default; live failure retains the last good theme, reports the error once,
+and retries on subsequent polls. Leaving System stops its timer. Static sources
+reload with Ctrl+P. This keeps platform-specific settings out of the CLI and views.
 
 This first version handles text chat; media input remains in the web app. Split
 GGUF shards are identified but not offered as individual model downloads: fetch

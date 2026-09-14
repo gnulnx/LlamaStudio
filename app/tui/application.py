@@ -19,8 +19,8 @@ from .discover import DiscoverView
 from .header import StudioHeader
 from .logs import LogsView
 from .models import ModelsView
-from .palette import Palette, load_palette
-from .widgets import Confirm, Help, StudioView
+from .themes import ResolvedTheme, ThemeAdapter, create_theme_adapter, resolve_initial_theme
+from .widgets import Confirm, Help, StudioView, ThemePicker
 
 
 class StudioApp(App[None]):
@@ -35,6 +35,7 @@ class StudioApp(App[None]):
         Binding("f5", "view('logs')", "Logs", show=False),
         Binding("ctrl+r", "refresh", "Refresh", priority=True),
         Binding("ctrl+p", "reload_palette", "Palette", show=False, priority=True),
+        Binding("f6", "choose_theme", "Theme"),
         Binding("ctrl+n", "new_chat", "New chat", show=False),
         Binding("escape", "back", "Back", show=False),
         Binding("ctrl+q", "quit", "Quit", priority=True),
@@ -47,11 +48,22 @@ class StudioApp(App[None]):
         initial_view: str = "discover",
         client: StudioClient | None = None,
         palette_path: str | None = None,
-        palette: Palette | None = None,
+        theme_name: str = "default",
+        theme_adapter: ThemeAdapter | None = None,
+        resolved_theme: ResolvedTheme | None = None,
     ):
         super().__init__()
         self.palette_path = palette_path
-        self.palette = palette or load_palette(palette_path)
+        self._custom_base = theme_name
+        self.theme_name = "custom" if palette_path else theme_name
+        self.theme_adapter = theme_adapter or create_theme_adapter(theme_name, palette_path)
+        self.resolved_theme = resolved_theme or resolve_initial_theme(self.theme_adapter)
+        self.palette = self.resolved_theme.palette
+        self._theme_timer = None
+        self._theme_worker = None
+        self._theme_lock = asyncio.Lock()
+        self._theme_generation = 0
+        self._theme_error = ""
         self.client = client or StudioClient(base_url)
         self.base_url = base_url
         self.current_view = initial_view
@@ -62,17 +74,78 @@ class StudioApp(App[None]):
         self.connected = False
         self._last_download_state = "idle"
         self._views: dict[str, StudioView] = {}
-        self.register_theme(self.palette.theme())
+        self.register_theme(self.palette.theme(dark=self.resolved_theme.dark))
         self.theme = "llamastudio"
 
     def action_reload_palette(self) -> None:
-        try:
-            palette = load_palette(self.palette_path)
-        except (OSError, ValueError) as exc:
-            self.notify(f"Palette unchanged: {exc}", severity="error", timeout=10)
+        self.request_theme(self.theme_adapter, self.theme_name)
+
+    def action_choose_theme(self) -> None:
+        if not isinstance(self.screen, ThemePicker):
+            self.push_screen(
+                ThemePicker(self.theme_name, self.resolved_theme.notice, bool(self.palette_path)),
+                self.select_theme,
+            )
+
+    def select_theme(self, name: str | None) -> None:
+        if name is None:
             return
-        self.palette = palette
-        self.register_theme(palette.theme())
+        adapter = (
+            create_theme_adapter(self._custom_base, self.palette_path)
+            if name == "custom"
+            else create_theme_adapter(name)
+        )
+        self.request_theme(adapter, name)
+
+    def request_theme(self, adapter: ThemeAdapter, name: str, *, announce: bool = True) -> None:
+        self._theme_generation += 1
+        generation = self._theme_generation
+
+        async def resolve() -> None:
+            # Serialize source reads, including rapid manual switches. A late
+            # result may never overwrite a newer selection. No UI-thread I/O.
+            async with self._theme_lock:
+                if generation != self._theme_generation:
+                    return
+                try:
+                    resolved = await asyncio.to_thread(adapter.resolve)
+                except (OSError, ValueError) as exc:
+                    if generation == self._theme_generation and self.is_running:
+                        error = f"Theme unchanged: {exc}"
+                        if announce or error != self._theme_error:
+                            self.notify(error, severity="error", timeout=10)
+                        self._theme_error = error
+                    return
+                if generation != self._theme_generation or not self.is_running:
+                    return
+                self._theme_error = ""
+                changed_adapter = adapter is not self.theme_adapter
+                self.theme_adapter, self.theme_name = adapter, name
+                if resolved != self.resolved_theme:
+                    self.apply_theme(resolved)
+                if changed_adapter or self._theme_timer is None:
+                    self.watch_theme()
+                if announce:
+                    self.notify(resolved.notice or f"Theme: {name.title()}", timeout=5)
+
+        self._theme_worker = self.run_worker(resolve, group="theme", exit_on_error=False)
+
+    def watch_theme(self) -> None:
+        if self._theme_timer is not None:
+            self._theme_timer.stop()
+            self._theme_timer = None
+        interval = self.theme_adapter.refresh_interval
+        if interval is not None:
+            self._theme_timer = self.set_interval(interval, self.poll_theme)
+
+    def poll_theme(self) -> None:
+        if self._theme_worker is None or self._theme_worker.is_finished:
+            self.request_theme(self.theme_adapter, self.theme_name, announce=False)
+
+    def apply_theme(self, resolved: ResolvedTheme) -> None:
+        self.resolved_theme = resolved
+        self.palette = resolved.palette
+        self.register_theme(self.palette.theme(dark=resolved.dark))
         self.refresh_css(animate=False)
         self.update_header()
         # CSS updates existing widgets. Only pre-styled Rich text needs repainting;
@@ -83,7 +156,6 @@ class StudioApp(App[None]):
         if logs.loaded:
             logs.last_render = None
             logs.render_log_tail()
-        self.notify("Palette reloaded", timeout=2)
 
     def compose(self) -> ComposeResult:
         yield StudioHeader(id="masthead")
@@ -116,6 +188,9 @@ class StudioApp(App[None]):
         self.action_view(self.current_view)
         self.tick()
         self.set_interval(3, self.tick)
+        self.watch_theme()
+        if self.resolved_theme.notice:
+            self.notify(self.resolved_theme.notice, timeout=8)
 
     def tick(self) -> None:
         if not self.is_running:
