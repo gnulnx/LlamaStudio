@@ -283,6 +283,22 @@ used when true color is unavailable, and `NO_COLOR` is respected. For SSH, run
 `lls tui` on the host running LlamaStudio, using `ssh -t` when launching directly.
 The backend's filesystem and GPU are the ones shown in the TUI.
 
+**Colors look wrong over SSH?** SSH may pass `TERM=xterm-256color` without
+`COLORTERM=truecolor`, causing the TUI to use a reduced 256-color palette. Dark
+surfaces can collapse to black and accents can shift noticeably. If your local
+terminal supports true color (for example, iTerm2), launch the TUI on the remote
+host with:
+
+```bash
+COLORTERM=truecolor lls tui
+```
+
+This also works with `--theme default`, `--theme slate`, or another theme choice.
+Set the variable in the remote shell where `lls` runs; setting it only in your
+local shell does not ensure SSH forwards it. Use this override only with a
+true-color-capable terminal. Native sessions may look correct while SSH sessions
+from the same terminal look different.
+
 Choose an appearance at launch, or press **F6** to open the Appearance chooser:
 
 ```bash
