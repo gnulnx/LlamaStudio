@@ -93,6 +93,38 @@ class TestConfigLoader(unittest.TestCase):
                 0.95,
             )
 
+    def test_saving_partial_profile_settings_preserves_existing_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_file = Path(tmp) / "model.gguf"
+            model_file.write_text("fake model")
+            loader = ConfigLoader(config_dir=Path(tmp) / "config")
+
+            loader.save_model_profile(
+                str(model_file),
+                {
+                    "ctx_size": 131072,
+                    "kv_cache_type": "q4_0",
+                    "vocab_type": "q4_0",
+                    "chat_template_kwargs": {"reasoning_effort": "medium"},
+                },
+                model_name="Model",
+            )
+
+            # A save from a UI/CLI path that only knows about a subset of fields
+            # (e.g. a basic ctx/gpu/threads/flash-attn/kv-cache form) must not
+            # silently discard fields it doesn't know about.
+            loader.save_model_profile(
+                str(model_file),
+                {"ctx_size": 65536, "gpu_layers": 999},
+            )
+
+            settings = loader.get_model_profile_settings(str(model_file))
+            self.assertEqual(settings["ctx_size"], 65536)
+            self.assertEqual(settings["gpu_layers"], 999)
+            self.assertEqual(settings["kv_cache_type"], "q4_0")
+            self.assertEqual(settings["vocab_type"], "q4_0")
+            self.assertEqual(settings["chat_template_kwargs"], {"reasoning_effort": "medium"})
+
     def test_launch_view_consumes_first_launch_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             loader = ConfigLoader(config_dir=Path(tmp) / "config")
