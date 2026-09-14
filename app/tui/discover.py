@@ -31,15 +31,16 @@ from .widgets import Confirm, LibraryTable, StudioView, size_label
 def capabilities(model: dict[str, Any], palette: Palette) -> Text:
     tags = set(model.get("tags") or [])
     pipeline = model.get("pipeline_tag") or ""
-    badges = Text()
+    badges = Text(no_wrap=True, overflow="ellipsis")
     for enabled, label, color in (
         (bool(tags & {"vision", "multimodal"}) or "image" in pipeline, "Vision", palette.warning),
         ("reasoning" in tags, "Reasoning", palette.teal),
         (bool(tags & {"tools", "tool-use", "function-calling"}), "Tools", palette.warning),
     ):
         if enabled:
+            if badges:
+                badges.append(" ")
             badges.append(f" {label} ", style=f"bold {color} on {palette.surface}")
-            badges.append(" ")
     return badges if badges else Text(" Text ", style=f"{palette.muted} on {palette.surface}")
 
 
@@ -142,14 +143,14 @@ class DiscoverView(StudioView):
         table.clear(columns=True)
         width = self.app.size.width
         available = table.size.width or (width - 8 if width < 110 else width - 71)
-        extra = (18 if width >= 155 else 0) + (27 if width >= 185 else 0)
+        extra = (18 if width >= 155 else 0) + (30 if width >= 185 else 0)
         table.add_column("Model", width=max(16, min(52, available - 25 - extra)))
         if width >= 155:
             table.add_column("Author", width=16)
         table.add_column("Downloads", width=11)
         table.add_column("Likes", width=7)
         if width >= 185:
-            table.add_column("Capabilities", width=25)
+            table.add_column("Capabilities", width=28)
         for model in self.models:
             repo = model["id"]
             row: list[Any] = [Text(repo.split("/")[-1], overflow="ellipsis", no_wrap=True)]
