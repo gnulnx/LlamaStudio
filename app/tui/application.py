@@ -102,7 +102,9 @@ class StudioApp(App[None]):
             yield Static("", id="download-label")
             yield ProgressBar(total=100, show_eta=False, id="download-progress")
             yield Button("Cancel", id="download-cancel")
-        yield Footer()
+        # Footer ignores margins when docked, so a padded bar keeps it inside the gutter.
+        with Horizontal(id="footer-bar"):
+            yield Footer()
 
     def on_mount(self) -> None:
         self._views = {
