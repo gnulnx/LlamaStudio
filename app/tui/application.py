@@ -124,13 +124,13 @@ class StudioApp(App[None]):
                 if resolved != self.resolved_theme:
                     self.apply_theme(resolved)
                 if changed_adapter or self._theme_timer is None:
-                    self.watch_theme()
+                    self.schedule_theme_refresh()
                 if announce:
                     self.notify(resolved.notice or f"Theme: {name.title()}", timeout=5)
 
         self._theme_worker = self.run_worker(resolve, group="theme", exit_on_error=False)
 
-    def watch_theme(self) -> None:
+    def schedule_theme_refresh(self) -> None:
         if self._theme_timer is not None:
             self._theme_timer.stop()
             self._theme_timer = None
@@ -146,6 +146,7 @@ class StudioApp(App[None]):
         self.resolved_theme = resolved
         self.palette = resolved.palette
         self.register_theme(self.palette.theme(dark=resolved.dark))
+        self.mutate_reactive(App.theme)
         self.refresh_css(animate=False)
         self.update_header()
         # CSS updates existing widgets. Only pre-styled Rich text needs repainting;
@@ -188,7 +189,7 @@ class StudioApp(App[None]):
         self.action_view(self.current_view)
         self.tick()
         self.set_interval(3, self.tick)
-        self.watch_theme()
+        self.schedule_theme_refresh()
         if self.resolved_theme.notice:
             self.notify(self.resolved_theme.notice, timeout=8)
 

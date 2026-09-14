@@ -128,7 +128,8 @@ class ThemePicker(ModalScreen[str | None]):
         options = [
             ("Default — LlamaStudio purple", "default"),
             ("Light — pale surfaces, purple accents", "light"),
-            ("Dark — slate surfaces, blue accents", "dark"),
+            ("Dark — charcoal surfaces, neutral accents", "dark"),
+            ("Slate — slate surfaces, blue accents", "slate"),
             ("System — follow your environment", "system"),
         ]
         if self.custom:
@@ -176,7 +177,7 @@ class Help(ModalScreen[None]):
                     "| Enter / Space | Activate the focused control |\n"
                     "| Escape | Back from details on a small screen |\n"
                     "| Ctrl+R | Refresh the current section |\n"
-                    "| F6 | Choose Default, Light, Dark, or System appearance |\n"
+                    "| F6 | Choose Default, Light, Dark, Slate, or System appearance |\n"
                     "| Ctrl+P | Reload the current theme without restarting |\n"
                     "| Ctrl+N | New conversation (in Chat) |\n"
                     "| Ctrl+S | Send a chat message |\n"

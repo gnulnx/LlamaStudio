@@ -288,8 +288,9 @@ Choose an appearance at launch, or press **F6** to open the Appearance chooser:
 ```bash
 lls tui --theme default  # Original LlamaStudio purple (the default)
 lls tui --theme light    # Pale surfaces with purple accents
-lls tui --theme dark     # Slate surfaces with blue accents
-lls tui --theme system   # System adapter, with an explicit Default fallback
+lls tui --theme dark     # Charcoal surfaces with neutral accents
+lls tui --theme slate    # Named preset: slate surfaces with blue accents
+lls tui --theme system   # System adapter, native light/dark preference; Default if unsupported
 ```
 
 Selections in the chooser apply to the current TUI session; they are not saved as
@@ -297,10 +298,25 @@ a desktop-wide preference. **Ctrl+P** reloads the selected source. Switching or
 reloading preserves your current section, selection, and unfinished chat draft.
 `--theme` also works with `--screenshot`.
 
-System is an extension point in this release: **no platform adapters are bundled
-yet**, so it displays a notice and uses Default, without a polling timer. It does
-not claim to detect desktop or terminal colors. Future integrations such as Omarchy
-belong behind this choice; they must not change the default launch appearance.
+System follows the native **light/dark preference**, using the bundled Light or
+Dark palette. On GNOME-family desktops (including GNOME-based Pop!_OS), it reads
+`org.gnome.desktop.interface color-scheme` through `gsettings`. An explicit
+`prefer-light` or `prefer-dark` wins; `default` or a missing legacy key falls back
+to `gtk-theme` (for example, `Pop-dark`). Theme names containing a separate `dark`
+component select Dark; other names select Light. This is a naming convention,
+not an attempt to parse arbitrary GTK stylesheet colors.
+
+On macOS, System reads the global `AppleInterfaceStyle` preference through
+`defaults`; an absent key means Light. Both adapters reread the effective
+preference every two seconds while System is selected, including changes made by
+automatic appearance scheduling. Reads run off the UI thread, have bounded
+timeouts, and never modify desktop settings or request automation permission.
+Unsupported/headless environments display a notice and use Default without a
+polling timer. Over SSH, preferences belong to the host running the TUI.
+
+Slate is the first named preset, preserving the original slate-blue Dark design.
+Future full-palette integrations such as Omarchy can register ahead of the generic
+light/dark adapters, without changing the default launch appearance.
 
 Default colors live in [app/tui/palette.json](app/tui/palette.json), shared by the
 stylesheet, header, capability badges, model status, and logs. Edit that file and

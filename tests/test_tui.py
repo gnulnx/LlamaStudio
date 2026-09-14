@@ -200,6 +200,9 @@ class Backend:
 
 class TestTUI(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        system = patch("app.tui.themes.SYSTEM_ADAPTERS", ())
+        system.start()
+        self.addCleanup(system.stop)
         self.backend = Backend()
         self.app = StudioApp(
             "http://studio",
@@ -322,7 +325,7 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             await self.settle(pilot)
             editor = self.app.query_one("#chat-input", Composer)
             editor.load_text("Keep this draft through light and dark")
-            for name in ("light", "dark", "system", "default"):
+            for name in ("light", "dark", "slate", "system", "default"):
                 await pilot.press("f6")
                 self.app.screen.query_one("#theme-choice", Select).value = name
                 await pilot.click("#theme-apply")
@@ -330,6 +333,7 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertEqual(self.app.theme_name, name)
                 self.assertEqual(self.app.current_theme.dark, name != "light")
+                self.assertEqual(self.app.has_class("-light-mode"), name == "light")
                 self.assertEqual(editor.text, "Keep this draft through light and dark")
                 self.assertEqual(self.app.current_view, "chat")
                 self.assertIsNone(self.app._theme_timer)

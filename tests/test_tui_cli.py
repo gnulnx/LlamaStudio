@@ -122,9 +122,10 @@ class TestTuiCommand(unittest.TestCase):
             start.assert_not_called()
 
     def test_theme_choice_reaches_application_with_resolved_mode(self):
-        for name in ("default", "light", "dark", "system"):
+        for name in ("default", "light", "dark", "slate", "system"):
             with (
                 self.subTest(name=name),
+                patch("app.tui.themes.SYSTEM_ADAPTERS", ()),
                 self.terminal(),
                 patch("app.cli.is_server_online", return_value=True),
                 patch("app.cli.wait_for_server_ready", return_value=True),

@@ -7,6 +7,11 @@ touches widgets. Register its detection factory in SYSTEM_ADAPTERS.
 
 from __future__ import annotations
 
+import os
+import re
+import shutil
+import subprocess
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -14,7 +19,8 @@ from importlib.resources import files
 
 from .palette import Palette, _read_colors, load_palette
 
-THEME_NAMES = ("default", "light", "dark", "system")
+BUNDLED_THEME_NAMES = ("default", "light", "dark", "slate")
+THEME_NAMES = (*BUNDLED_THEME_NAMES, "system")
 
 
 @dataclass(frozen=True)
@@ -42,7 +48,7 @@ class ThemeAdapter(ABC):
 
 class BundledThemeAdapter(ThemeAdapter):
     def __init__(self, name: str = "default"):
-        if name not in THEME_NAMES[:3]:
+        if name not in BUNDLED_THEME_NAMES:
             raise ValueError(f"Unknown bundled theme: {name}")
         self.name = name
 
@@ -65,9 +71,115 @@ class CustomThemeAdapter(ThemeAdapter):
         return ResolvedTheme(load_palette(self.path, base=base.palette), base.dark, "custom")
 
 
-# Ordered, explicit extension point. A factory returns None if unsupported.
-# Only System invokes these factories; there are no platform adapters yet.
-SYSTEM_ADAPTERS: tuple[Callable[[], ThemeAdapter | None], ...] = ()
+def _read_setting(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Only read native appearance preferences, without shell or automation access."""
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("Could not read system appearance preferences.") from exc
+
+
+class AppearanceThemeAdapter(ThemeAdapter):
+    """Map native light/dark preference to bundled colors, caching each mode."""
+
+    refresh_interval = 2.0
+    source: str
+
+    def __init__(self):
+        self._resolved: ResolvedTheme | None = None
+
+    @abstractmethod
+    def is_dark(self) -> bool:
+        """Read the effective native appearance; failures must not imply light."""
+
+    def resolve(self) -> ResolvedTheme:
+        dark = self.is_dark()
+        if self._resolved is None or dark != self._resolved.dark:
+            palette = BundledThemeAdapter("dark" if dark else "light").resolve().palette
+            self._resolved = ResolvedTheme(palette, dark, self.source)
+        return self._resolved
+
+
+class GtkThemeAdapter(AppearanceThemeAdapter):
+    source = "gnome-gtk"
+
+    def __init__(self, command: str):
+        super().__init__()
+        self.command = command
+
+    def is_dark(self) -> bool:
+        prefix = [self.command, "get", "org.gnome.desktop.interface"]
+        result = _read_setting([*prefix, "color-scheme"])
+        scheme = result.stdout.strip().strip("'\"")
+        if result.returncode == 0:
+            if scheme in ("prefer-dark", "prefer-light"):
+                return scheme == "prefer-dark"
+            if scheme != "default":
+                raise ValueError("Unrecognized GNOME color-scheme preference.")
+        elif "No such key" not in result.stderr:
+            raise ValueError("Could not read GNOME color-scheme preference.")
+        # Older GNOME and Pop!_OS themes may express appearance only through
+        # gtk-theme. Explicit modern light/dark preference always wins.
+        result = _read_setting([*prefix, "gtk-theme"])
+        theme = result.stdout.strip().strip("'\"")
+        if result.returncode != 0 or not theme:
+            raise ValueError("Could not read GTK theme preference.")
+        return "dark" in re.split(r"[-_\s:]", theme.lower())
+
+
+class MacOSThemeAdapter(AppearanceThemeAdapter):
+    source = "macos"
+
+    def is_dark(self) -> bool:
+        result = _read_setting(["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"])
+        if result.returncode == 0:
+            value = result.stdout.strip().lower()
+            if value in ("dark", "light"):
+                return value == "dark"
+        # macOS normally removes this key in light mode. Do not turn command
+        # failures/timeouts into a light-mode switch. No System Events permission.
+        elif (
+            result.returncode == 1
+            and "AppleInterfaceStyle" in result.stderr
+            and "does not exist" in result.stderr
+        ):
+            return False
+        raise ValueError("Could not read macOS appearance preference.")
+
+
+def detect_macos_theme() -> ThemeAdapter | None:
+    return MacOSThemeAdapter() if sys.platform == "darwin" else None
+
+
+def detect_gtk_theme() -> ThemeAdapter | None:
+    desktops = set(os.environ.get("XDG_CURRENT_DESKTOP", "").lower().split(":"))
+    if sys.platform.startswith("linux") and desktops & {
+        "gnome",
+        "pop",
+        "cinnamon",
+        "budgie",
+        "unity",
+        "pantheon",
+    }:
+        command = shutil.which("gsettings")
+        if command:
+            return GtkThemeAdapter(command)
+    return None
+
+
+# Ordered, explicit extension point. Specific full-palette integrations can be
+# registered before these native light/dark adapters. Only System detects them.
+SYSTEM_ADAPTERS: tuple[Callable[[], ThemeAdapter | None], ...] = (
+    detect_macos_theme,
+    detect_gtk_theme,
+)
 
 
 class SystemThemeAdapter(ThemeAdapter):
@@ -92,7 +204,7 @@ class SystemThemeAdapter(ThemeAdapter):
             load_palette(),
             True,
             "default",
-            "System theme unavailable; using Default. No system adapter is installed.",
+            "System theme unavailable; using Default. No supported desktop was detected.",
         )
 
 
