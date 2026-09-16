@@ -182,7 +182,7 @@ class ServerManager:
             else:
                 cmd.extend(["--chat-template", "deepseek"])
         elif chat_template == "chatml":
-            chatml_tmpl = "{% for message in messages %}{{'</think>' + message['role'] + '\\n' + message['content'] + '\\n'}}{% endfor %}{% if add_generation_prompt %}{{'\\n'}}{% endif %}"
+            chatml_tmpl = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant\\n'}}{% endif %}"
             cmd.extend(["--chat-template", chatml_tmpl])
         elif chat_template == "gemma":
             gemma_tmpl = "{% for message in messages %}{{'<start_of_turn>' + message['role'] + '\\n' + message['content'] + '<end_of_turn>\\n'}}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>assistant\\n'}}{% endif %}"

@@ -3,6 +3,8 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+from jinja2 import Template
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.server_manager import ServerManager
@@ -58,6 +60,48 @@ class TestServerManagerCommand(unittest.TestCase):
         self.assertIn("--timeout", cmd)
         timeout_index = cmd.index("--timeout")
         self.assertEqual(cmd[timeout_index + 1], "1200")
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_chatml_template_uses_chatml_turn_markers(self, _mock_resolve):
+        """Guards against the ChatML template being clobbered (see PR #9 regression)."""
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command("/models/test-model.gguf", {"chat_template": "chatml"})
+
+        template = cmd[cmd.index("--chat-template") + 1]
+        self.assertIn("<|im_start|>", template)
+        self.assertIn("<|im_end|>", template)
+        self.assertNotIn("</think>", template)
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_chatml_template_renders_expected_prompt(self, _mock_resolve):
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command("/models/test-model.gguf", {"chat_template": "chatml"})
+
+        template = cmd[cmd.index("--chat-template") + 1]
+        rendered = Template(template).render(
+            messages=[
+                {"role": "system", "content": "be terse"},
+                {"role": "user", "content": "hi"},
+            ],
+            add_generation_prompt=True,
+        )
+
+        self.assertEqual(
+            rendered,
+            "<|im_start|>system\nbe terse<|im_end|>\n"
+            "<|im_start|>user\nhi<|im_end|>\n"
+            "<|im_start|>assistant\n",
+        )
 
 
 if __name__ == "__main__":
