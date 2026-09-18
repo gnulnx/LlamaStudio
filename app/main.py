@@ -164,7 +164,8 @@ async def load_model(request: Request):
     config_loader.save_model_profile(model_path, model_params)
     result = server.load_model(model_path, model_params)
     if not result:
-        raise HTTPException(500, "Failed to load model. Check server logs.")
+        # Report what llama-server actually said instead of sending people to the logs.
+        raise HTTPException(500, server.last_error or "Failed to load model. Check server logs.")
 
     return {"status": "ok", "model": model_path, "running": server.is_running}
 

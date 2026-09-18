@@ -21,6 +21,7 @@ class ServerManager:
     _current_model_name: str | None = None
     _current_params: ClassVar[dict] = {}
     _is_loading: bool = False
+    _last_error: str | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -193,6 +194,66 @@ class ServerManager:
 
         return cmd
 
+    # A file llama.cpp cannot parse fails identically without a GPU, so these
+    # make the CPU retry pointless rather than merely slow.
+    UNSUPPORTED_MODEL_MARKERS = (
+        "invalid ggml type",
+        "failed to read tensor info",
+        "gguf_init_from_reader",
+        "unknown model architecture",
+    )
+
+    @property
+    def last_error(self) -> str | None:
+        """Why the most recent load failed, for the API to pass to the user."""
+        return self._last_error
+
+    @staticmethod
+    def _vram_description() -> str:
+        """Describe the real device. The old text hard-coded someone else's card."""
+        try:
+            from .gpu_utils import get_gpu_info
+
+            info = get_gpu_info()
+            total = info.get("total_vram")
+            if total:
+                return f"this GPU's {total:.0f} GiB of VRAM"
+        except Exception:
+            pass
+        return "available GPU memory"
+
+    @staticmethod
+    def _startup_errors(log_file: Path) -> list[str]:
+        """Every distinct error llama-server logged, root cause first.
+
+        Order matters: llama.cpp reports the specific fault ("invalid ggml
+        type 142") before the generic consequences ("failed to load model"),
+        so the earliest lines are the ones worth showing.
+        """
+        try:
+            lines = log_file.read_text(errors="replace").splitlines()
+        except OSError:
+            return []
+
+        found: list[str] = []
+        for line in lines:
+            # Our own decoration from an earlier attempt is not llama.cpp's news.
+            if line.startswith(("ERROR:", "-", "DEBUG INFO", "[WARNING]", "---")):
+                continue
+            # llama.cpp tags severity as a bare "E" column; keep a plain-text
+            # fallback for builds that log without the marker.
+            if " E " not in line and "error" not in line.lower():
+                continue
+            message = line.split(" E ", 1)[-1].strip()
+            if message and message not in found:
+                found.append(message)
+        return found
+
+    def _retry_on_cpu_is_futile(self, errors: list[str]) -> bool:
+        """Checks every error, not a truncated view: the cause is logged first."""
+        haystack = " ".join(errors).lower()
+        return any(marker in haystack for marker in self.UNSUPPORTED_MODEL_MARKERS)
+
     def _write_log(self) -> Path:
         log_dir = Path(settings.LOG_DIR)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -236,6 +297,7 @@ class ServerManager:
 
             cmd = self._build_command(model, params, force_cpu=cpu_mode)
 
+            self._last_error = None
             logger.info(f"[server] Loading: {model} with cmd: {' '.join(cmd)}")
             with open(log_file, "w") as f:
                 f.write("--- LLamaStudio Server Starting ---\n")
@@ -256,7 +318,12 @@ class ServerManager:
 
             # AUTOMATIC FALLBACK LOGIC
             # If startup failed and we were NOT in CPU mode, try starting in CPU Mode as a fallback!
-            if not cpu_mode:
+            startup_errors = self._startup_errors(log_file)
+            if not cpu_mode and self._retry_on_cpu_is_futile(startup_errors):
+                logger.error(
+                    "[server] llama-server cannot read this model; skipping the CPU fallback."
+                )
+            elif not cpu_mode:
                 logger.warning(
                     "[server] GPU loading failed or timed out. Attempting automatic CPU fallback..."
                 )
@@ -297,19 +364,33 @@ class ServerManager:
                     self._is_loading = False
                     return True
 
-            # If we get here, both GPU and fallback (or CPU alone) failed
-            error_msg = "[server] Timed out waiting for llama-server to become ready."
-            logger.error(error_msg)
+            # If we get here, both GPU and fallback (or CPU alone) failed.
+            # Re-read: the fallback attempt may have logged more since.
+            startup_errors = self._startup_errors(log_file) or startup_errors
+            self._last_error = (
+                startup_errors[0]
+                if startup_errors
+                else "llama-server did not become ready before the timeout."
+            )
+            logger.error(f"[server] Failed to load model: {self._last_error}")
             with open(log_file, "a") as f:
-                f.write(f"\nERROR: {error_msg}\n")
-                f.write("DEBUG INFO:\n")
-                f.write("- Port 1234 might be blocked or in use by another zombie process.\n")
-                f.write(
-                    "- Model configuration parameters (e.g. context size, thread count) might exceed system capability.\n"
-                )
-                f.write(
-                    "- GPU out-of-memory: Check if the GGUF model is too large for the 32GB VRAM offload.\n"
-                )
+                if startup_errors:
+                    f.write("\nERROR: llama-server reported:\n")
+                    for message in startup_errors[:6]:
+                        f.write(f"- {message}\n")
+                else:
+                    f.write(
+                        "\nERROR: Timed out waiting for llama-server to become ready, "
+                        "and it logged no error.\n"
+                    )
+                    f.write("DEBUG INFO:\n")
+                    f.write(
+                        f"- Port {settings.LLAMA_SERVER_PORT} might be in use by another process.\n"
+                    )
+                    f.write(
+                        "- Context size or thread count might exceed what this machine can do.\n"
+                    )
+                    f.write(f"- The model might not fit in {self._vram_description()}.\n")
             self._is_loading = False
             self.eject_model()
             return False
