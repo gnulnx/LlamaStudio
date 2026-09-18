@@ -22,6 +22,38 @@ def size_label(value: int | float | None) -> str:
     return f"{value / 1024**3:.2f} GiB"
 
 
+def duration_label(seconds: int | float | None) -> str:
+    """Compact remaining time. Long downloads report hours, not four-digit minutes."""
+    if not seconds or seconds < 0:
+        return ""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s"
+    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+
+
+def download_summary(progress: dict) -> str:
+    """One line of download detail; the progress bar carries the percentage."""
+    parts = [str(progress.get("filename") or "Downloading...")]
+
+    done = progress.get("downloaded_bytes") or 0
+    total = progress.get("total_bytes") or 0
+    if total:
+        parts.append(f"{done / 1024**3:.2f} / {total / 1024**3:.2f} GiB")
+    elif done:
+        # A server that sends no Content-Length still has bytes on disk to report.
+        parts.append(f"{done / 1024**3:.2f} GiB")
+
+    parts.append(f"{progress.get('speed_mb', 0):.1f} MiB/s")
+
+    eta = duration_label(progress.get("eta_seconds"))
+    if eta:
+        parts.append(f"{eta} left")
+    return "  ·  ".join(parts)
+
+
 class LibraryTable(DataTable):
     """Notify the owning view after the table's actual available width changes."""
 

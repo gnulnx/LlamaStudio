@@ -20,7 +20,7 @@ from .header import StudioHeader
 from .logs import LogsView
 from .models import ModelsView
 from .themes import ResolvedTheme, ThemeAdapter, create_theme_adapter, resolve_initial_theme
-from .widgets import Confirm, Help, StudioView, ThemePicker
+from .widgets import Confirm, Help, StudioView, ThemePicker, download_summary
 
 
 class StudioApp(App[None]):
@@ -171,7 +171,8 @@ class StudioApp(App[None]):
                 yield ModelsView()
                 yield ChatView()
                 yield LogsView()
-        with Horizontal(id="download-tray"):
+        # The tray pads like #workspace so its filled bar lines up with the panels.
+        with Horizontal(id="download-tray"), Horizontal(id="download-bar"):
             yield Static("", id="download-label")
             yield ProgressBar(total=100, show_eta=False, id="download-progress")
             yield Button("Cancel", id="download-cancel")
@@ -229,11 +230,7 @@ class StudioApp(App[None]):
             state = progress.get("status", "idle")
             self.query_one("#download-tray").display = self.download_active
             if self.download_active:
-                self.query_one("#download-label", Static).update(
-                    Text(
-                        f"{progress.get('filename', 'Downloading...')} / {progress.get('speed_mb', 0):.1f} MiB/s"
-                    )
-                )
+                self.query_one("#download-label", Static).update(Text(download_summary(progress)))
                 self.query_one("#download-progress", ProgressBar).update(
                     total=100 if progress.get("total_bytes") else None,
                     progress=progress.get("percent", 0),

@@ -10,7 +10,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import httpx
-from textual.widgets import Button, DataTable, Input, Markdown, Select, Static
+from textual.widgets import Button, DataTable, Input, Markdown, ProgressBar, Select, Static
 
 from app.tui.application import StudioApp
 from app.tui.chat import ChatView, MessageCard
@@ -424,6 +424,57 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#confirm")
             await self.settle(pilot)
             self.assertFalse(self.app.download_active)
+
+    async def test_download_tray_shows_progress_bar_and_transfer_detail(self):
+        self.backend.progress = {
+            "status": "downloading",
+            "filename": "Tiny-Q4_K_M.gguf",
+            "percent": 37.5,
+            "downloaded_bytes": 3 * 1024**3,
+            "total_bytes": 8 * 1024**3,
+            "speed_mb": 41.4,
+            "eta_seconds": 800,
+        }
+        async with self.app.run_test(size=(180, 48)) as pilot:
+            await self.settle(pilot)
+
+            bar = self.app.query_one("#download-progress", ProgressBar)
+            # A zero-height bar renders nothing; the tray then looks like it has none.
+            self.assertGreater(bar.size.height, 0)
+            self.assertEqual(bar.percentage, 0.375)
+
+            label = str(self.app.query_one("#download-label", Static).render())
+            self.assertIn("Tiny-Q4_K_M.gguf", label)
+            self.assertIn("3.00 / 8.00 GiB", label)
+            self.assertIn("41.4 MiB/s", label)
+            self.assertIn("13m 20s left", label)
+
+    async def test_download_tray_lines_up_with_the_panels_above_it(self):
+        self.backend.progress = {
+            "status": "downloading",
+            "filename": "Tiny-Q4_K_M.gguf",
+            "percent": 10,
+            "total_bytes": 1024,
+        }
+        for width in (80, 110, 180):
+            with self.subTest(width=width):
+                # run_test closes the app on exit, so each width needs its own instance.
+                app = StudioApp(
+                    "http://studio",
+                    client=StudioClient(
+                        "http://studio", transport=httpx.MockTransport(self.backend)
+                    ),
+                )
+                async with app.run_test(size=(width, 48)) as pilot:
+                    for _ in range(3):
+                        await pilot.pause(0.12)
+                        await app.workers.wait_for_complete()
+                    tray = app.query_one("#download-bar").region
+                    panel = app.query_one("#sections").region
+                    self.assertEqual(tray.right, panel.right)
+                    self.assertEqual(tray.x, app.query_one("#navigation").region.x)
+                    cancel = app.query_one("#download-cancel").region
+                    self.assertLessEqual(cancel.right, tray.right)
 
     async def test_split_file_cannot_be_mistaken_for_a_complete_model(self):
         async with self.app.run_test(size=(180, 48)) as pilot:
