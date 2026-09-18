@@ -4916,7 +4916,7 @@
         document.getElementById('dlCardProgressBar').style.width = '0%';
         document.getElementById('dlCardPercent').textContent = '0%';
         document.getElementById('dlCardSizeProgress').textContent = '(0MB / 0MB)';
-        document.getElementById('dlCardSpeed').textContent = '0.0 MB/s';
+        document.getElementById('dlCardSpeed').textContent = '0.0 MiB/s';
         document.getElementById('dlCardEta').textContent = 'ETA: 0s';
         document.getElementById('downloadProgressCard').style.display = 'block';
 
@@ -4943,7 +4943,7 @@
                     document.getElementById('dlCardProgressBar').style.width = `${data.percent}%`;
                     document.getElementById('dlCardPercent').textContent = `${data.percent}%`;
                     document.getElementById('dlCardSizeProgress').textContent = `(${dlMb}MB / ${totMb}MB)`;
-                    document.getElementById('dlCardSpeed').textContent = `${data.speed_mb} MB/s`;
+                    document.getElementById('dlCardSpeed').textContent = `${data.speed_mb} MiB/s`;
                     
                     const etaSeconds = data.eta_seconds || 0;
                     let etaText = `${etaSeconds}s`;
@@ -5038,7 +5038,7 @@
             <span id="dlCardSizeProgress" style="color: var(--text-muted); margin-left: 4px;">(0MB / 0MB)</span>
         </div>
         <div style="text-align: right;">
-            <span id="dlCardSpeed">0.0 MB/s</span>
+            <span id="dlCardSpeed">0.0 MiB/s</span>
             <span id="dlCardEta" style="color: var(--text-muted); margin-left: 6px;">ETA: 0s</span>
         </div>
     </div>

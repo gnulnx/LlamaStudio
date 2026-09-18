@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -35,6 +36,11 @@ class ModelDownloader:
     status: str = "idle"  # idle, downloading, completed, failed, cancelled
     error_message: str | None = None
 
+    # Rate is measured over a trailing window so a stall is visible promptly
+    # instead of being hidden behind a average taken since the first byte.
+    SPEED_WINDOW_SECONDS = 10.0
+    _samples: deque[tuple[float, int]] | None = None
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -44,12 +50,46 @@ class ModelDownloader:
     def is_active(self) -> bool:
         return self._active_task is not None and not self._active_task.done()
 
+    def _reset_speed_samples(self) -> None:
+        """Start a fresh measurement. Bytes already on disk are not this session's."""
+        self._samples = deque()
+        self._note_progress()
+
+    def _note_progress(self) -> None:
+        """Record the current position, keeping one anchor older than the window."""
+        if self._samples is None:
+            self._samples = deque()
+        now = time.monotonic()
+        self._samples.append((now, self.downloaded_bytes))
+        cutoff = now - self.SPEED_WINDOW_SECONDS
+        while len(self._samples) > 2 and self._samples[1][0] <= cutoff:
+            self._samples.popleft()
+
+    def _current_speed(self) -> float:
+        """Bytes per second across the trailing window, or 0 before any sample."""
+        if not self._samples:
+            return 0.0
+
+        now = time.monotonic()
+        cutoff = now - self.SPEED_WINDOW_SECONDS
+        base_time, base_bytes = self._samples[0]
+        for moment, position in self._samples:
+            if moment > cutoff:
+                break
+            base_time, base_bytes = moment, position
+
+        elapsed = now - base_time
+        if elapsed <= 0:
+            return 0.0
+        # Measuring to "now" rather than to the last sample lets a stalled
+        # transfer decay to zero instead of holding its last good rate.
+        return max(0, self.downloaded_bytes - base_bytes) / elapsed
+
     def get_progress(self) -> dict[str, Any]:
         if self.status == "idle":
             return {"status": "idle"}
 
-        elapsed = time.time() - self.start_time if self.start_time > 0 else 0
-        speed = self.downloaded_bytes / elapsed if elapsed > 0 else 0.0
+        speed = self._current_speed()
         percent = (self.downloaded_bytes / self.total_bytes * 100) if self.total_bytes > 0 else 0.0
         eta = (self.total_bytes - self.downloaded_bytes) / speed if speed > 0 else 0.0
 
@@ -59,7 +99,7 @@ class ModelDownloader:
             "downloaded_bytes": self.downloaded_bytes,
             "total_bytes": self.total_bytes,
             "percent": round(percent, 2),
-            "speed_mb": round(speed / (1024 * 1024), 2),  # MB/s
+            "speed_mb": round(speed / (1024 * 1024), 2),  # MiB/s
             "eta_seconds": int(eta) if self.total_bytes > 0 and speed > 0 else 0,
             "status": self.status,
             "error": self.error_message,
@@ -80,6 +120,7 @@ class ModelDownloader:
         self.downloaded_bytes = 0
         self.total_bytes = 0
         self.start_time = 0.0
+        self._samples = None
         self.status = "downloading"
         self.error_message = None
 
@@ -191,6 +232,7 @@ class ModelDownloader:
         self.downloaded_bytes = existing_bytes
         if self.start_time <= 0:
             self.start_time = time.time()
+        self._reset_speed_samples()
 
         max_attempts = 6
         attempts = 0
@@ -231,6 +273,7 @@ class ModelDownloader:
                             )
                             self.downloaded_bytes = 0
                             tmp_path.write_bytes(b"")
+                            self._reset_speed_samples()
 
                         self._update_total_bytes(response)
                         mode = (
@@ -246,6 +289,7 @@ class ModelDownloader:
 
                                 f.write(chunk)
                                 self.downloaded_bytes += len(chunk)
+                                self._note_progress()
 
                         if self.total_bytes <= 0 or self.downloaded_bytes >= self.total_bytes:
                             return
