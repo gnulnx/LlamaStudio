@@ -33,6 +33,43 @@ class TestServerManagerCommand(unittest.TestCase):
         timeout_index = cmd.index("--timeout")
         self.assertEqual(cmd[timeout_index + 1], "900")
 
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_includes_reasoning_budget(self, _mock_resolve):
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command(
+                "/models/test-qwen.gguf",
+                {"reasoning_budget": 2048, "reasoning_budget_message": "Act now."},
+            )
+            default_cmd = server._build_command("/models/test-qwen.gguf", {})
+
+        self.assertEqual(cmd[cmd.index("--reasoning-budget") + 1], "2048")
+        self.assertEqual(cmd[cmd.index("--reasoning-budget-message") + 1], "Act now.")
+        self.assertNotIn("--reasoning-budget", default_cmd)
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_ignores_invalid_reasoning_budget(self, _mock_resolve):
+        """A malformed profile value is skipped, not fatal to loading the model."""
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command(
+                "/models/test-qwen.gguf",
+                {"reasoning_budget": "none", "reasoning_budget_message": "Act now."},
+            )
+            negative_cmd = server._build_command("/models/test-qwen.gguf", {"reasoning_budget": -1})
+
+        self.assertNotIn("--reasoning-budget", cmd)
+        self.assertNotIn("--reasoning-budget-message", cmd)
+        self.assertNotIn("--reasoning-budget", negative_cmd)
+
     def test_supports_audio_reads_active_server_modalities(self):
         server = ServerManager()
         response = Mock()

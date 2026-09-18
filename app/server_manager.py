@@ -156,6 +156,23 @@ class ServerManager:
             # Only apply Qwen override fallback to Qwen models
             cmd.extend(["--override-kv", "qwen35.context_length=int:262144"])
 
+        # Cap thinking tokens; the server injects the message when the budget runs out
+        reasoning_budget = params.get("reasoning_budget")
+        if reasoning_budget is not None:
+            try:
+                budget = int(reasoning_budget)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "[server] Ignoring non-numeric reasoning_budget: %r", reasoning_budget
+                )
+            else:
+                # Negative means unrestricted, which is already llama-server's default.
+                if budget >= 0:
+                    cmd.extend(["--reasoning-budget", str(budget)])
+                    reasoning_budget_message = params.get("reasoning_budget_message")
+                    if reasoning_budget_message:
+                        cmd.extend(["--reasoning-budget-message", str(reasoning_budget_message)])
+
         # Auto-configure deepseek models (ensure reasoning format is correct)
         if "deepseek" in model_path.lower():
             cmd.extend(["--reasoning-format", "deepseek"])
