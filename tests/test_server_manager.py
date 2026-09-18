@@ -136,5 +136,58 @@ Model Path: /models/Ternary-Bonsai-2-27B-PQ2_0.gguf
         self.assertEqual(ServerManager._vram_description(), "available GPU memory")
 
 
+class TestStaleErrorIsNotReported(unittest.TestCase):
+    """A failed load must never be described by the previous load's error."""
+
+    STALE = "invalid ggml type 142. should be in [0, 43)"
+
+    def setUp(self):
+        self.server = ServerManager()
+        self.server._last_error = self.STALE
+        self.addCleanup(setattr, self.server, "_last_error", None)
+
+        # Keep these tests off the real log directory and the real process.
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        log_patch = patch.object(
+            ServerManager, "_write_log", return_value=Path(self.directory) / "server.log"
+        )
+        log_patch.start()
+        self.addCleanup(log_patch.stop)
+
+    def test_a_missing_model_replaces_the_previous_error(self):
+        with patch("app.model_manager.find_mmproj", return_value=""):
+            loaded = self.server.load_model(f"{self.directory}/absent.gguf", {})
+
+        self.assertFalse(loaded)
+        self.assertNotEqual(self.server.last_error, self.STALE)
+        self.assertIn("Model not found", self.server.last_error)
+
+    def test_a_missing_projector_replaces_the_previous_error(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+
+        loaded = self.server.load_model(str(model), {"mmproj": f"{self.directory}/absent.mmproj"})
+
+        self.assertFalse(loaded)
+        self.assertNotEqual(self.server.last_error, self.STALE)
+        self.assertIn("projector not found", self.server.last_error.lower())
+
+    def test_an_exception_during_load_is_recorded(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+
+        with (
+            patch("app.model_manager.find_mmproj", return_value=""),
+            patch.object(ServerManager, "_build_command", side_effect=RuntimeError("boom")),
+            patch.object(ServerManager, "eject_model", return_value=True),
+        ):
+            loaded = self.server.load_model(str(model), {})
+
+        self.assertFalse(loaded)
+        self.assertNotEqual(self.server.last_error, self.STALE)
+        self.assertIn("boom", self.server.last_error)
+
+
 if __name__ == "__main__":
     unittest.main()

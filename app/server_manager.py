@@ -264,6 +264,9 @@ class ServerManager:
         model = model_path
         log_file = self._write_log()
         params = dict(params or {})
+        # Cleared here, before any early return, so a caller never reads the
+        # previous load's failure as though it described this one.
+        self._last_error = None
 
         from .model_manager import find_mmproj
 
@@ -271,6 +274,7 @@ class ServerManager:
         if mmproj:
             mmproj_path = Path(mmproj).expanduser().resolve()
             if not mmproj_path.is_file():
+                self._last_error = f"Multimodal projector not found: {mmproj_path}"
                 logger.error("[server] Multimodal projector not found: %s", mmproj_path)
                 return False
             params["mmproj"] = str(mmproj_path)
@@ -281,6 +285,7 @@ class ServerManager:
         try:
             if not Path(model).exists():
                 error_msg = f"[server] Model not found: {model}"
+                self._last_error = f"Model not found: {model}"
                 logger.error(error_msg)
                 with open(log_file, "a") as f:
                     f.write(f"\nERROR: {error_msg}\n")
@@ -297,7 +302,6 @@ class ServerManager:
 
             cmd = self._build_command(model, params, force_cpu=cpu_mode)
 
-            self._last_error = None
             logger.info(f"[server] Loading: {model} with cmd: {' '.join(cmd)}")
             with open(log_file, "w") as f:
                 f.write("--- LLamaStudio Server Starting ---\n")
@@ -399,6 +403,7 @@ class ServerManager:
             import traceback
 
             error_msg = f"[server] Exception during model load: {e!s}"
+            self._last_error = error_msg
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             with open(log_file, "a") as f:
