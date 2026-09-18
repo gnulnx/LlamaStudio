@@ -173,6 +173,84 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["Authorization"], "Bearer test-token")
 
 
+class TestDownloadSpeedMeasurement(unittest.TestCase):
+    """Rate and ETA describe the current transfer, not the file's whole history."""
+
+    GiB = 1024**3
+    MiB = 1024**2
+
+    def setUp(self):
+        self.clock = 1000.0
+        patcher = patch("app.downloader.time.monotonic", side_effect=lambda: self.clock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        downloader.status = "downloading"
+        downloader.error_message = None
+
+    def transfer(self, seconds: int, bytes_per_second: int) -> None:
+        for _ in range(seconds):
+            self.clock += 1.0
+            downloader.downloaded_bytes += bytes_per_second
+            downloader._note_progress()
+
+    def test_resumed_download_excludes_bytes_already_on_disk(self):
+        """Counting the existing file as this session's transfer invents huge rates."""
+        downloader.total_bytes = 50 * self.GiB
+        downloader.downloaded_bytes = 40 * self.GiB
+        downloader._reset_speed_samples()
+
+        self.transfer(seconds=10, bytes_per_second=10 * self.MiB)
+
+        progress = downloader.get_progress()
+        self.assertAlmostEqual(progress["speed_mb"], 10.0, places=1)
+        # ~9.9 GiB left at 10 MiB/s. The pre-existing 40 GiB must not shorten it.
+        self.assertGreater(progress["eta_seconds"], 900)
+
+    def test_rate_follows_a_slowdown_instead_of_averaging_it_away(self):
+        downloader.total_bytes = 50 * self.GiB
+        downloader.downloaded_bytes = 0
+        downloader._reset_speed_samples()
+
+        self.transfer(seconds=50, bytes_per_second=100 * self.MiB)
+        self.assertGreater(downloader.get_progress()["speed_mb"], 90)
+
+        self.transfer(seconds=10, bytes_per_second=1 * self.MiB)
+        self.assertAlmostEqual(downloader.get_progress()["speed_mb"], 1.0, places=1)
+
+    def test_a_stalled_transfer_decays_to_zero(self):
+        downloader.total_bytes = 50 * self.GiB
+        downloader.downloaded_bytes = 0
+        downloader._reset_speed_samples()
+        self.transfer(seconds=5, bytes_per_second=100 * self.MiB)
+
+        self.clock += 30.0  # nothing arrives
+
+        progress = downloader.get_progress()
+        self.assertEqual(progress["speed_mb"], 0.0)
+        self.assertEqual(progress["eta_seconds"], 0)
+
+    def test_restarting_the_transfer_restarts_the_measurement(self):
+        """A server that ignores the resume range rewinds the bytes."""
+        downloader.total_bytes = 50 * self.GiB
+        downloader.downloaded_bytes = 10 * self.GiB
+        downloader._reset_speed_samples()
+        self.transfer(seconds=5, bytes_per_second=50 * self.MiB)
+
+        downloader.downloaded_bytes = 0
+        downloader._reset_speed_samples()
+        self.transfer(seconds=10, bytes_per_second=20 * self.MiB)
+
+        self.assertAlmostEqual(downloader.get_progress()["speed_mb"], 20.0, places=1)
+
+    def test_no_samples_yet_reports_no_rate_rather_than_dividing_by_zero(self):
+        downloader.total_bytes = 0
+        downloader.downloaded_bytes = 0
+        downloader._samples = None
+        progress = downloader.get_progress()
+        self.assertEqual(progress["speed_mb"], 0.0)
+        self.assertEqual(progress["eta_seconds"], 0)
+
+
 class TestFastAPIPoints(unittest.TestCase):
     """Test Suite for FastAPI Endpoints in main.py."""
 

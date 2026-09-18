@@ -25,7 +25,7 @@ A dynamic local model explorer that scans your directories and lets you adjust c
 ![GGUF Model Browser](imgs/model_settings.png)
 
 ### 3. Hugging Face Discover Hub
-Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Estimator** calibrated to your hardware, and a floating background download progress card with live speed (MB/s), ETA, and cancel controls.
+Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Estimator** calibrated to your hardware, and a floating background download progress card with live speed (MiB/s), ETA, and cancel controls.
 ![Hugging Face Discover Hub](imgs/discover_models.png)
 
 ---
