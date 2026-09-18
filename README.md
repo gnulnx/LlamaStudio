@@ -262,6 +262,14 @@ load settings, load/eject, and confirmed deletion. Chat supports multiline text,
 saved conversations, streamed Markdown, collapsible reasoning, and tool activity.
 Logs tails the application or inference server, with filtering and follow control.
 
+A download tray appears above the footer whenever a transfer is running, in every
+section rather than only in Discover. It shows the file name, bytes transferred
+against the total, the current rate, the time remaining, a progress bar with its
+percentage, and a Cancel button; cancelling asks for confirmation and keeps the
+partial file for resume. A server that reports no total size shows the bytes
+already written and an indeterminate bar. In narrow terminals the leading detail
+is truncated before the bar, percentage, and Cancel button.
+
 The header adds a two-line wordmark, the primary GPU, live device-wide VRAM
 usage, inference state (including CPU/GPU mode), and the active model. NVIDIA
 memory usage refreshes every three seconds; unsupported telemetry is shown as
