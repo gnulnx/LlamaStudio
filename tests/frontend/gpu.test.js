@@ -100,7 +100,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
         await window.fetchGpuInfo();
 
         expect(window.fetch).toHaveBeenCalledWith('/api/gpu');
-        expect(window.backendGpuInfo).toEqual({
+        expect(window.backendGpuInfo).toMatchObject({
             name: "NVIDIA GeForce RTX 5090",
             vram: 31
         });

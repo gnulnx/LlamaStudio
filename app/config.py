@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     LLAMA_SERVER_PORT: int = 1234
     LLAMA_SERVER_CTX_SIZE: int = 16384
     LLAMA_SERVER_GPU_LAYERS: int = 999
+    LLAMA_SERVER_GPU_DEVICE: str = "all"
     LLAMA_SERVER_FLASH_ATTN: str = "on"
     LLAMA_SERVER_KV_CACHE_TYPE: str = "q8_0"
     LLAMA_SERVER_VOCAB_TYPE: str = "q8_0"

@@ -254,6 +254,51 @@ class TestStaleErrorIsNotReported(unittest.TestCase):
         self.assertNotEqual(self.server.last_error, self.STALE)
         self.assertIn("projector not found", self.server.last_error.lower())
 
+    def test_explicit_empty_or_none_mmproj_prevents_autodiscovery(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+
+        params = {"mmproj": ""}
+        with (
+            patch("app.model_manager.find_mmproj", return_value="/discovered/projector.gguf"),
+            patch.object(
+                ServerManager, "_build_command", return_value=["/bin/true", "-m", str(model)]
+            ) as mock_build,
+            patch.object(ServerManager, "_wait_for_ready", return_value=True),
+            patch("app.server_manager.subprocess.Popen") as mock_popen,
+        ):
+            mock_popen.return_value.poll.return_value = None
+            loaded = self.server.load_model(str(model), params)
+            self.assertTrue(loaded)
+            self.assertIsNone(self.server._current_params.get("mmproj"))
+            mock_build.assert_called_once()
+            self.assertIsNone(mock_build.call_args[0][1].get("mmproj"))
+
+    def test_mmproj_error_triggers_fallback_without_projector(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+        proj = Path(self.directory) / "projector.gguf"
+        proj.write_bytes(b"CLIP")
+
+        with (
+            patch.object(
+                ServerManager,
+                "_startup_errors",
+                side_effect=[
+                    [
+                        "clip_init: failed to load model: load_hparams: unknown projector type: gemma4uv"
+                    ],
+                    [],
+                ],
+            ),
+            patch.object(ServerManager, "_wait_for_ready", side_effect=[False, True]),
+            patch("app.server_manager.subprocess.Popen") as mock_popen,
+        ):
+            mock_popen.return_value.poll.return_value = None
+            loaded = self.server.load_model(str(model), {"mmproj": str(proj)})
+            self.assertTrue(loaded)
+            self.assertIsNone(self.server._current_params.get("mmproj"))
+
     def test_an_exception_during_load_is_recorded(self):
         model = Path(self.directory) / "present.gguf"
         model.write_bytes(b"GGUF")
@@ -268,6 +313,39 @@ class TestStaleErrorIsNotReported(unittest.TestCase):
         self.assertFalse(loaded)
         self.assertNotEqual(self.server.last_error, self.STALE)
         self.assertIn("boom", self.server.last_error)
+
+    @patch("app.server_manager.platform.system", return_value="Linux")
+    def test_build_env_targets_specific_cuda_device(self, _mock_platform):
+        server = ServerManager()
+        env = server._build_env({"gpu_device": "1"})
+        self.assertEqual(env.get("CUDA_DEVICE_ORDER"), "PCI_BUS_ID")
+        self.assertEqual(env.get("CUDA_VISIBLE_DEVICES"), "1")
+
+        env_all = server._build_env({"gpu_device": "all"})
+        self.assertNotIn("CUDA_VISIBLE_DEVICES", env_all)
+
+    @patch("app.server_manager.platform.system", return_value="Darwin")
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_targets_metal_device_on_macos(self, _mock_bin, _mock_platform):
+        server = ServerManager()
+        cmd = server._build_command("/models/test.gguf", {"gpu_device": "0"})
+        self.assertIn("--device", cmd)
+        idx = cmd.index("--device")
+        self.assertEqual(cmd[idx + 1], "METAL0")
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_multi_gpu_split_flags(self, _mock_bin):
+        server = ServerManager()
+        cmd = server._build_command(
+            "/models/test.gguf",
+            {"split_mode": "row", "tensor_split": "32,24", "main_gpu": 0},
+        )
+        self.assertIn("--split-mode", cmd)
+        self.assertEqual(cmd[cmd.index("--split-mode") + 1], "row")
+        self.assertIn("--tensor-split", cmd)
+        self.assertEqual(cmd[cmd.index("--tensor-split") + 1], "32,24")
+        self.assertIn("--main-gpu", cmd)
+        self.assertEqual(cmd[cmd.index("--main-gpu") + 1], "0")
 
 
 if __name__ == "__main__":

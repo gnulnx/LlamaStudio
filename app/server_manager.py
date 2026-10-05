@@ -3,6 +3,9 @@ Manages the llama-server process lifecycle.
 The app runs independently - llama-server is only running when a model is loaded.
 """
 
+import functools
+import os
+import platform
 import socket
 import subprocess
 import time
@@ -133,11 +136,15 @@ class ServerManager:
         if threads and int(threads) > 0:
             cmd.extend(["--threads", str(threads)])
 
-        # Handle mmap
-        if not mmap:
-            cmd.append("--no-mmap")
+        # Handle mmap / load-mode
+        if self._supports_load_mode(binary_path):
+            if not mmap:
+                cmd.extend(["--load-mode", "none"])
         else:
-            cmd.append("--mmap")
+            if not mmap:
+                cmd.append("--no-mmap")
+            else:
+                cmd.append("--mmap")
 
         # Handle seed
         if seed is not None and int(seed) >= 0:
@@ -209,7 +216,53 @@ class ServerManager:
             llama3_tmpl = "<|begin_of_text|>{% for message in messages %}{{'<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n' + message['content'] + '<|eot_id|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|start_header_id|>assistant<|end_header_id|>\\n\\n'}}{% endif %}"
             cmd.extend(["--chat-template", llama3_tmpl])
 
+        # Multi-GPU and Device settings
+        split_mode = params.get("split_mode")
+        if split_mode and str(split_mode).lower() in ("none", "layer", "row", "tensor"):
+            cmd.extend(["--split-mode", str(split_mode).lower()])
+
+        tensor_split = params.get("tensor_split")
+        if tensor_split:
+            cmd.extend(["--tensor-split", str(tensor_split)])
+
+        main_gpu = params.get("main_gpu")
+        if main_gpu is not None and str(main_gpu).strip() != "":
+            cmd.extend(["--main-gpu", str(main_gpu).strip()])
+
+        # Device offloading on macOS (Metal)
+        if platform.system() == "Darwin" and not force_cpu:
+            gpu_dev = params.get("gpu_device")
+            if gpu_dev and str(gpu_dev).lower() not in ("all", "auto"):
+                dev_str = str(gpu_dev).strip()
+                if not dev_str.upper().startswith("METAL"):
+                    dev_str = f"METAL{dev_str}"
+                cmd.extend(["--device", dev_str])
+
         return cmd
+
+    def _build_env(self, params: dict | None = None, force_cpu: bool = False) -> dict[str, str]:
+        env = os.environ.copy()
+        if force_cpu or (params and params.get("cpu_mode")):
+            return env
+
+        params = params or {}
+        defaults = config_loader.get_llama_defaults()
+        gpu_device = params.get("gpu_device", defaults.get("gpu_device", "all"))
+        if not gpu_device or str(gpu_device).lower() in ("all", "auto"):
+            return env
+
+        dev_str = str(gpu_device).strip()
+        if dev_str.upper().startswith("CUDA"):
+            dev_str = dev_str[4:]
+        elif dev_str.upper().startswith("HIP"):
+            dev_str = dev_str[3:]
+
+        if platform.system() == "Linux":
+            env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            env["CUDA_VISIBLE_DEVICES"] = dev_str
+            env["ROCR_VISIBLE_DEVICES"] = dev_str
+
+        return env
 
     # A file llama.cpp cannot parse fails identically without a GPU, so these
     # make the CPU retry pointless rather than merely slow.
@@ -219,6 +272,21 @@ class ServerManager:
         "gguf_init_from_reader",
         "unknown model architecture",
     )
+
+    @staticmethod
+    @functools.lru_cache(maxsize=4)
+    def _supports_load_mode(binary_path: str) -> bool:
+        """Check if the llama-server binary supports modern --load-mode flag."""
+        try:
+            output = subprocess.check_output(
+                [binary_path, "--help"],
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=5,
+            )
+            return "--load-mode" in output
+        except Exception:
+            return False
 
     @property
     def last_error(self) -> str | None:
@@ -287,14 +355,28 @@ class ServerManager:
 
         from .model_manager import find_mmproj
 
-        mmproj = str(params.get("mmproj") or find_mmproj(model) or "").strip()
-        if mmproj:
-            mmproj_path = Path(mmproj).expanduser().resolve()
-            if not mmproj_path.is_file():
-                self._last_error = f"Multimodal projector not found: {mmproj_path}"
-                logger.error("[server] Multimodal projector not found: %s", mmproj_path)
-                return False
-            params["mmproj"] = str(mmproj_path)
+        if "mmproj" in params:
+            explicit_mmproj = str(params.get("mmproj") or "").strip()
+            if not explicit_mmproj or explicit_mmproj.lower() in (
+                "none",
+                "off",
+                "disable",
+                "disabled",
+                "false",
+            ):
+                params["mmproj"] = None
+            else:
+                mmproj_path = Path(explicit_mmproj).expanduser().resolve()
+                if not mmproj_path.is_file():
+                    self._last_error = f"Multimodal projector not found: {mmproj_path}"
+                    logger.error("[server] Multimodal projector not found: %s", mmproj_path)
+                    return False
+                params["mmproj"] = str(mmproj_path)
+        else:
+            found = find_mmproj(model)
+            if found:
+                mmproj_path = Path(found).expanduser().resolve()
+                params["mmproj"] = str(mmproj_path) if mmproj_path.is_file() else None
 
         # Determine initial cpu mode from params
         cpu_mode = params.get("cpu_mode", False) or int(params.get("gpu_layers", 999)) == 0
@@ -325,11 +407,13 @@ class ServerManager:
                 f.write(f"Model Path: {model}\n")
                 f.write(f"Command: {' '.join(cmd)}\n\n")
                 f.flush()
+                env = self._build_env(params, force_cpu=cpu_mode)
                 self._process = subprocess.Popen(
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
                     cwd=Path(cmd[0]).parent,
+                    env=env,
                 )
 
             if self._wait_for_ready():
@@ -337,9 +421,71 @@ class ServerManager:
                 self._is_loading = False
                 return True
 
+            # Check for startup errors
+            startup_errors = self._startup_errors(log_file)
+
+            # PROJECTOR FALLBACK LOGIC
+            # If load failed specifically due to an incompatible/broken multimodal projector,
+            # retry loading the base language model without the mmproj argument.
+            is_mmproj_error = bool(params.get("mmproj")) and any(
+                any(
+                    marker in err.lower()
+                    for marker in [
+                        "failed to load clip model",
+                        "failed to load multimodal model",
+                        "failed to get memory usage of mmproj",
+                        "unknown projector type",
+                        "clip_init:",
+                        "clip_graph_",
+                        "[mtmd]",
+                    ]
+                )
+                for err in startup_errors
+            )
+
+            if is_mmproj_error:
+                logger.warning(
+                    "[server] Multimodal projector failed to load; retrying base model without mmproj..."
+                )
+                with open(log_file, "a") as f:
+                    f.write(
+                        "\n[WARNING] Multimodal projector failed to load. Retrying base model without mmproj...\n\n"
+                    )
+
+                self.eject_model()
+                self._current_model = model
+                self._current_model_name = Path(model).stem
+                params_no_mmproj = dict(params)
+                params_no_mmproj["mmproj"] = None
+                self._current_params = params_no_mmproj
+                self._is_loading = True
+
+                cmd_no_mmproj = self._build_command(model, params_no_mmproj, force_cpu=cpu_mode)
+                with open(log_file, "a") as f:
+                    f.write("--- Retrying Without Multimodal Projector ---\n")
+                    f.write(f"Command: {' '.join(cmd_no_mmproj)}\n\n")
+                    f.flush()
+                    env = self._build_env(params_no_mmproj, force_cpu=cpu_mode)
+                    self._process = subprocess.Popen(
+                        cmd_no_mmproj,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        cwd=Path(cmd_no_mmproj[0]).parent,
+                        env=env,
+                    )
+
+                if self._wait_for_ready():
+                    logger.info(
+                        f"[server] Model loaded successfully without mmproj: {self._current_model_name}"
+                    )
+                    self._is_loading = False
+                    return True
+
+                # Refresh startup errors after the no-mmproj attempt
+                startup_errors = self._startup_errors(log_file)
+
             # AUTOMATIC FALLBACK LOGIC
             # If startup failed and we were NOT in CPU mode, try starting in CPU Mode as a fallback!
-            startup_errors = self._startup_errors(log_file)
             if not cpu_mode and self._retry_on_cpu_is_futile(startup_errors):
                 logger.error(
                     "[server] llama-server cannot read this model; skipping the CPU fallback."
@@ -354,11 +500,14 @@ class ServerManager:
                 self.eject_model()
                 self._current_model = model
                 self._current_model_name = Path(model).stem
-                self._current_params = params
+                fallback_params = dict(params)
+                if is_mmproj_error:
+                    fallback_params["mmproj"] = None
+                self._current_params = fallback_params
                 self._is_loading = True
 
                 # Build fallback command with force_cpu=True
-                cmd_fallback = self._build_command(model, params, force_cpu=True)
+                cmd_fallback = self._build_command(model, fallback_params, force_cpu=True)
                 logger.info(
                     f"[server] Loading fallback: {model} with cmd: {' '.join(cmd_fallback)}"
                 )
@@ -368,11 +517,13 @@ class ServerManager:
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
 
+                    fallback_env = self._build_env(params, force_cpu=True)
                     self._process = subprocess.Popen(
                         cmd_fallback,
                         stdout=f,
                         stderr=subprocess.STDOUT,
                         cwd=Path(cmd_fallback[0]).parent,
+                        env=fallback_env,
                     )
 
                 if self._wait_for_ready():

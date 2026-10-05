@@ -2197,6 +2197,19 @@
                             </div>
                         </div>
 
+                        <!-- Target Device -->
+                        <div class="control-group" id="group-target-device">
+                            <div class="control-header">
+                                <div>
+                                    <span class="control-label">Target Device</span>
+                                    <div class="control-sublabel">Target specific GPU or multi-GPU split</div>
+                                </div>
+                            </div>
+                            <select class="control-input" id="param-gpu-device">
+                                <option value="all">All GPUs (Multi-GPU Split)</option>
+                            </select>
+                        </div>
+
                         <!-- CPU Thread Count -->
                         <div class="control-group">
                             <div class="control-header">
@@ -2610,8 +2623,13 @@
                 if (data && data.name) {
                     window.backendGpuInfo = {
                         name: data.name,
-                        vram: data.vram
+                        vram: data.vram,
+                        devices: data.devices || [],
+                        total_system_vram: data.total_system_vram,
+                        total_system_free: data.total_system_free,
+                        device_count: data.device_count || 1
                     };
+                    populateGpuDeviceSelect();
                     updateGpuUi();
                 }
             }
@@ -2620,11 +2638,53 @@
         }
     }
 
+    function populateGpuDeviceSelect() {
+        const select = document.getElementById('param-gpu-device');
+        if (!select || !window.backendGpuInfo) return;
+        const devices = window.backendGpuInfo.devices || [];
+        const currentVal = select.value || 'all';
+        select.innerHTML = '';
+
+        if (devices.length > 1) {
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            const totVram = Math.round(window.backendGpuInfo.total_system_vram || devices.reduce((acc, d) => acc + (d.vram || 0), 0));
+            optAll.textContent = `All GPUs (Multi-GPU Split: ${totVram} GB)`;
+            select.appendChild(optAll);
+
+            devices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = String(d.id !== undefined ? d.id : d.index);
+                opt.textContent = `GPU ${opt.value}: ${d.name} (${d.vram || '?'} GB)`;
+                select.appendChild(opt);
+            });
+        } else if (devices.length === 1) {
+            const d = devices[0];
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            const kind = d.memory_kind === 'unified' ? 'Unified' : 'VRAM';
+            optAll.textContent = `${d.name} (${d.vram || '?'} GB ${kind})`;
+            select.appendChild(optAll);
+        } else {
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            optAll.textContent = `${window.backendGpuInfo.name} (${window.backendGpuInfo.vram} GB)`;
+            select.appendChild(optAll);
+        }
+        select.value = currentVal;
+    }
+
     function updateGpuUi() {
         const gpuInfoDiv = document.getElementById('hfGpuInfo');
         const gpuNameText = document.getElementById('hfGpuNameText');
         if (window.backendGpuInfo && gpuInfoDiv && gpuNameText) {
-            gpuNameText.textContent = `${window.backendGpuInfo.name} (${window.backendGpuInfo.vram} GB VRAM)`;
+            const devices = window.backendGpuInfo.devices || [];
+            if (devices.length > 1) {
+                const totVram = Math.round(window.backendGpuInfo.total_system_vram || devices.reduce((acc, d) => acc + (d.vram || 0), 0));
+                gpuNameText.textContent = `${devices.length} GPUs Detected (${totVram} GB Total VRAM: ${devices.map(d => `${d.name.replace('NVIDIA ', '').replace('GeForce ', '')} [${d.vram}GB]`).join(' + ')})`;
+            } else {
+                gpuNameText.textContent = `${window.backendGpuInfo.name} (${window.backendGpuInfo.vram} GB VRAM)`;
+            }
             gpuInfoDiv.style.display = 'flex';
         }
     }
@@ -3005,6 +3065,10 @@
         // Populate inputs & ranges
         setParamValue('ctx', settings.ctx_size || 8192);
         setParamValue('gpu', settings.gpu_layers !== undefined ? settings.gpu_layers : 999);
+        const devEl = document.getElementById('param-gpu-device');
+        if (devEl) {
+            devEl.value = settings.gpu_device || 'all';
+        }
         setParamValue('threads', settings.threads || 4);
         
         document.getElementById('param-flash').checked = settings.flash_attn !== undefined ? settings.flash_attn : true;
@@ -3018,7 +3082,7 @@
 
         // Populate new load settings
         document.getElementById('param-override-kv').value = settings.override_kv || '';
-        document.getElementById('param-mmproj').value = settings.mmproj || model.mmproj_path || '';
+        document.getElementById('param-mmproj').value = (settings.mmproj !== undefined) ? settings.mmproj : (model.mmproj_path || '');
         document.getElementById('param-chat-template').value = settings.chat_template || '';
         document.getElementById('param-custom-template').value = settings.custom_template || '';
         toggleCustomTemplateTextarea();
@@ -3093,6 +3157,7 @@
         return {
             ctx_size: parseInt(document.getElementById('param-ctx').value),
             gpu_layers: parseInt(document.getElementById('param-gpu').value),
+            gpu_device: document.getElementById('param-gpu-device') ? document.getElementById('param-gpu-device').value : 'all',
             threads: parseInt(document.getElementById('param-threads').value),
             flash_attn: document.getElementById('param-flash').checked,
             mmap: document.getElementById('param-mmap').checked,
@@ -4703,6 +4768,14 @@
 
     function detectGPU() {
         if (window.backendGpuInfo) {
+            const devices = window.backendGpuInfo.devices || [];
+            if (devices.length > 1) {
+                const totalVram = Math.round(window.backendGpuInfo.total_system_vram || devices.reduce((acc, d) => acc + (d.vram || 0), 0));
+                return {
+                    name: `${devices.length}x Multi-GPU (${totalVram}GB VRAM)`,
+                    vram: totalVram
+                };
+            }
             return window.backendGpuInfo;
         }
         if (navigator.gpu) {

@@ -57,6 +57,13 @@ class TestGPUUtils(unittest.TestCase):
         self.assertEqual(info["name"], "GPU 0")
         self.assertEqual(info["total_vram"], 24)
         self.assertEqual(info["used_vram"], 1)
+        self.assertEqual(len(info["devices"]), 2)
+        self.assertEqual(info["devices"][0]["name"], "GPU 0")
+        self.assertEqual(info["devices"][0]["total_vram"], 24)
+        self.assertEqual(info["devices"][1]["name"], "GPU 1")
+        self.assertEqual(info["devices"][1]["total_vram"], 32)
+        self.assertEqual(info["total_system_vram"], 56)
+        self.assertEqual(info["device_count"], 2)
 
     @patch("app.gpu_utils.platform.system", return_value="Linux")
     @patch("glob.glob", return_value=[])
