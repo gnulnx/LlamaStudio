@@ -136,6 +136,16 @@ class ServerManager:
         if threads and int(threads) > 0:
             cmd.extend(["--threads", str(threads)])
 
+        # Handle parallel slots (defaults to 1 for dedicated personal/agent use)
+        parallel = params.get("parallel", defaults.get("parallel", 1))
+        if parallel is not None:
+            try:
+                parallel_int = int(parallel)
+                if parallel_int > 0:
+                    cmd.extend(["--parallel", str(parallel_int)])
+            except (ValueError, TypeError):
+                pass
+
         # Handle mmap / load-mode
         if self._supports_load_mode(binary_path):
             if not mmap:

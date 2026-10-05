@@ -26,6 +26,7 @@ class TestConfigLoader(unittest.TestCase):
             self.assertEqual(app_config["speech"]["engine"], "whisper.cpp")
             self.assertEqual(app_config["speech"]["model"], "small.en")
             self.assertFalse(app_config["speech"]["use_gpu"])
+            self.assertEqual(app_config["defaults"]["llama"]["parallel"], 1)
             self.assertTrue(loader.model_profiles_file.exists())
 
     def test_saves_speech_configuration(self):

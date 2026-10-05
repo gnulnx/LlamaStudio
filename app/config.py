@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     LLAMA_SERVER_KV_CACHE_TYPE: str = "q8_0"
     LLAMA_SERVER_VOCAB_TYPE: str = "q8_0"
     LLAMA_SERVER_OVERRIDE_KV: str = ""
+    LLAMA_SERVER_PARALLEL: int = 1
     LLAMA_SERVER_TASK_TIMEOUT: int = 900
 
     # Local speech-to-text settings

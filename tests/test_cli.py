@@ -100,6 +100,31 @@ class TestCliLoadSettings(unittest.TestCase):
         self.assertEqual(payload["settings"]["gpu_layers"], 999)
         self.assertEqual(payload["settings"]["kv_cache_type"], "q8_0")
 
+    def test_load_applies_parallel_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "Qwen3.6-27B-Q8_0.gguf"
+            model_path.touch()
+            scanned_model = SimpleNamespace(
+                name="Qwen3.6-27B-Q8_0",
+                path=str(model_path),
+                size_human="28 GB",
+            )
+
+            with (
+                patch(
+                    "app.cli.config_loader.get_model_profile_settings",
+                    return_value={},
+                ),
+                patch("app.cli.is_server_online", return_value=True),
+                patch("app.model_manager.scan_models", return_value=[scanned_model]),
+                patch("app.cli.httpx.post", return_value=FakeLoadResponse()) as mock_post,
+            ):
+                result = CliRunner().invoke(load, ["Qwen3.6", "--parallel", "2"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["settings"]["parallel"], 2)
+
     def test_load_can_ignore_saved_model_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
             model_path = Path(tmp) / "Qwen3.6-27B-Q8_0.gguf"

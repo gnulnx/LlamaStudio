@@ -39,6 +39,34 @@ class TestServerManagerCommand(unittest.TestCase):
         self.assertEqual(cmd[timeout_index + 1], "900")
 
     @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_includes_parallel_default(self, _mock_resolve):
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command("/models/test-qwen.gguf", {})
+
+        self.assertIn("--parallel", cmd)
+        parallel_index = cmd.index("--parallel")
+        self.assertEqual(cmd[parallel_index + 1], "1")
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_allows_parallel_override(self, _mock_resolve):
+        server = ServerManager()
+
+        with patch(
+            "app.server_manager.config_loader.get_llama_defaults",
+            return_value=self.llama_defaults(),
+        ):
+            cmd = server._build_command("/models/test-qwen.gguf", {"parallel": 4})
+
+        self.assertIn("--parallel", cmd)
+        parallel_index = cmd.index("--parallel")
+        self.assertEqual(cmd[parallel_index + 1], "4")
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
     def test_build_command_includes_reasoning_budget(self, _mock_resolve):
         server = ServerManager()
 

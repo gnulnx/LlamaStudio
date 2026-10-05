@@ -277,6 +277,7 @@ class ConfigLoader:
                     "flash_attn": settings.LLAMA_SERVER_FLASH_ATTN,
                     "kv_cache_type": settings.LLAMA_SERVER_KV_CACHE_TYPE,
                     "vocab_type": settings.LLAMA_SERVER_VOCAB_TYPE,
+                    "parallel": settings.LLAMA_SERVER_PARALLEL,
                     "task_timeout": settings.LLAMA_SERVER_TASK_TIMEOUT,
                 },
                 "chat": {

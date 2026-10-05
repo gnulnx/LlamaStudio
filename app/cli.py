@@ -502,6 +502,12 @@ def list_models_cmd():
 @click.option("--vocab-type", help="Quantization type for vocabulary (e.g. q8_0, f16)")
 @click.option("--override-kv", help="Format: key=type:val override string")
 @click.option("--task-timeout", type=int, help="Override llama-server task timeout in seconds")
+@click.option(
+    "--parallel",
+    "-np",
+    type=int,
+    help="Number of server slots / parallel requests (default: 1)",
+)
 @click.option("--cpu-mode", is_flag=True, help="Force CPU inference (sets gpu-layers=0)")
 @click.option(
     "--device",
@@ -626,6 +632,8 @@ def load(model, reload, **kwargs):
         settings_payload["override_kv"] = kwargs["override_kv"]
     if kwargs.get("task_timeout") is not None:
         settings_payload["task_timeout"] = kwargs["task_timeout"]
+    if kwargs.get("parallel") is not None:
+        settings_payload["parallel"] = kwargs["parallel"]
     if kwargs.get("device") is not None:
         settings_payload["gpu_device"] = kwargs["device"]
     if kwargs.get("cpu_mode"):
