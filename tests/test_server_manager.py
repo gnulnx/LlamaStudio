@@ -269,6 +269,39 @@ class TestStaleErrorIsNotReported(unittest.TestCase):
         self.assertNotEqual(self.server.last_error, self.STALE)
         self.assertIn("boom", self.server.last_error)
 
+    @patch("app.server_manager.platform.system", return_value="Linux")
+    def test_build_env_targets_specific_cuda_device(self, _mock_platform):
+        server = ServerManager()
+        env = server._build_env({"gpu_device": "1"})
+        self.assertEqual(env.get("CUDA_DEVICE_ORDER"), "PCI_BUS_ID")
+        self.assertEqual(env.get("CUDA_VISIBLE_DEVICES"), "1")
+
+        env_all = server._build_env({"gpu_device": "all"})
+        self.assertNotIn("CUDA_VISIBLE_DEVICES", env_all)
+
+    @patch("app.server_manager.platform.system", return_value="Darwin")
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_targets_metal_device_on_macos(self, _mock_bin, _mock_platform):
+        server = ServerManager()
+        cmd = server._build_command("/models/test.gguf", {"gpu_device": "0"})
+        self.assertIn("--device", cmd)
+        idx = cmd.index("--device")
+        self.assertEqual(cmd[idx + 1], "METAL0")
+
+    @patch("app.config.resolve_llama_server_bin", return_value="/usr/local/bin/llama-server")
+    def test_build_command_multi_gpu_split_flags(self, _mock_bin):
+        server = ServerManager()
+        cmd = server._build_command(
+            "/models/test.gguf",
+            {"split_mode": "row", "tensor_split": "32,24", "main_gpu": 0},
+        )
+        self.assertIn("--split-mode", cmd)
+        self.assertEqual(cmd[cmd.index("--split-mode") + 1], "row")
+        self.assertIn("--tensor-split", cmd)
+        self.assertEqual(cmd[cmd.index("--tensor-split") + 1], "32,24")
+        self.assertIn("--main-gpu", cmd)
+        self.assertEqual(cmd[cmd.index("--main-gpu") + 1], "0")
+
 
 if __name__ == "__main__":
     unittest.main()

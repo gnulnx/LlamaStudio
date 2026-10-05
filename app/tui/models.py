@@ -57,6 +57,13 @@ class ModelsView(StudioView):
             yield Input("16384", type="integer", id="model-context")
             yield Label("GPU layers (-1 or 999 = all)")
             yield Input("999", type="integer", id="model-layers")
+            yield Label("Target device")
+            yield Select(
+                [("All GPUs (Multi-GPU Split)", "all")],
+                value="all",
+                allow_blank=False,
+                id="model-device",
+            )
             yield Label("CPU threads")
             yield Input("4", type="integer", id="model-threads")
             yield Label("KV cache type")
@@ -190,6 +197,36 @@ class ModelsView(StudioView):
         cache_select.value = cache
         self.query_one("#model-flash", Checkbox).value = bool(profile.get("flash_attn", True))
         self.query_one("#model-cpu", Checkbox).value = bool(profile.get("cpu_mode", False))
+
+        device_select = self.query_one("#model-device", Select)
+        gpu = getattr(self.app, "gpu", {}) or {}
+        devices = gpu.get("devices", [])
+        if len(devices) > 1:
+            dev_options = [("All GPUs (Multi-GPU Split)", "all")]
+            for d in devices:
+                d_id = str(d.get("id", d.get("index", 0)))
+                d_name = d.get("name", f"GPU {d_id}")
+                d_vram = d.get("vram", "?")
+                dev_options.append((f"GPU {d_id}: {d_name} ({d_vram} GB)", d_id))
+        elif len(devices) == 1:
+            d = devices[0]
+            d_name = d.get("name", "GPU")
+            d_vram = d.get("vram", "?")
+            unified = d.get("memory_kind") == "unified"
+            kind = "Unified" if unified else "VRAM"
+            dev_options = [
+                ("All / Default", "all"),
+                (f"{d_name} ({d_vram} GB {kind})", str(d.get("id", "0"))),
+            ]
+        else:
+            dev_options = [("All GPUs (Split)", "all")]
+
+        target_dev = str(profile.get("gpu_device", "all"))
+        if not any(opt[1] == target_dev for opt in dev_options):
+            dev_options.append((f"Device {target_dev}", target_dev))
+        device_select.set_options(dev_options)
+        device_select.value = target_dev
+
         self.update_status()
 
     def edited_profile(self) -> dict[str, Any]:
@@ -214,6 +251,7 @@ class ModelsView(StudioView):
             kv_cache_type=str(self.query_one("#model-cache", Select).value),
             flash_attn=self.query_one("#model-flash", Checkbox).value,
             cpu_mode=self.query_one("#model-cpu", Checkbox).value,
+            gpu_device=str(self.query_one("#model-device", Select).value),
         )
         return profile
 

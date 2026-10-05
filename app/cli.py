@@ -373,17 +373,44 @@ def status():
             table.add_row("[bold cyan]Model Params[/bold cyan]", f"[dim]{param_details}[/dim]")
 
         # GPU info
-        gpu_name = gpu_data.get("name", "Unknown GPU")
-        total_vram = gpu_data.get("total_vram", gpu_data.get("vram"))
-        free_vram = gpu_data.get("free_vram")
-        if total_vram is not None and free_vram is not None:
-            memory = f"{free_vram:.2f} GiB / {total_vram:.2f} GiB free"
-        elif total_vram is not None:
-            memory = f"{total_vram:.2f} GiB total; usage unavailable"
+        devices = gpu_data.get("devices", [])
+        if len(devices) > 1:
+            for d in devices:
+                d_id = d.get("id", str(d.get("index", "")))
+                d_name = d.get("name", f"GPU {d_id}")
+                d_total = d.get("total_vram", d.get("vram"))
+                d_free = d.get("free_vram")
+                if d_total is not None and d_free is not None:
+                    memory = f"{d_free:.2f} GiB / {d_total:.2f} GiB free"
+                elif d_total is not None:
+                    memory = f"{d_total:.2f} GiB total; usage unavailable"
+                else:
+                    memory = "memory unavailable"
+                table.add_row(f"[bold cyan]GPU {d_id}[/bold cyan]", f"{d_name} ({memory})")
+
+            tot_sys = gpu_data.get("total_system_vram")
+            tot_free = gpu_data.get("total_system_free")
+            if tot_sys is not None and tot_free is not None:
+                tot_lbl = (
+                    f"{tot_free:.2f} GiB / {tot_sys:.2f} GiB free (Across {len(devices)} cards)"
+                )
+            elif tot_sys is not None:
+                tot_lbl = f"{tot_sys:.2f} GiB total (Across {len(devices)} cards)"
+            else:
+                tot_lbl = f"{len(devices)} cards detected"
+            table.add_row("[bold cyan]Total VRAM[/bold cyan]", tot_lbl)
         else:
-            memory = "memory unavailable"
-        gpu_lbl = f"{gpu_name} ({memory})"
-        table.add_row("[bold cyan]Primary GPU[/bold cyan]", gpu_lbl)
+            gpu_name = gpu_data.get("name", "Unknown GPU")
+            total_vram = gpu_data.get("total_vram", gpu_data.get("vram"))
+            free_vram = gpu_data.get("free_vram")
+            if total_vram is not None and free_vram is not None:
+                memory = f"{free_vram:.2f} GiB / {total_vram:.2f} GiB free"
+            elif total_vram is not None:
+                memory = f"{total_vram:.2f} GiB total; usage unavailable"
+            else:
+                memory = "memory unavailable"
+            gpu_lbl = f"{gpu_name} ({memory})"
+            table.add_row("[bold cyan]Primary GPU[/bold cyan]", gpu_lbl)
 
         console.print(
             Panel(
@@ -476,6 +503,11 @@ def list_models_cmd():
 @click.option("--override-kv", help="Format: key=type:val override string")
 @click.option("--task-timeout", type=int, help="Override llama-server task timeout in seconds")
 @click.option("--cpu-mode", is_flag=True, help="Force CPU inference (sets gpu-layers=0)")
+@click.option(
+    "--device",
+    "-d",
+    help="Target GPU device (e.g. '0', '1', 'CUDA0', 'METAL0', or 'all' for multi-GPU split)",
+)
 @click.option(
     "--no-saved-settings",
     is_flag=True,
@@ -594,6 +626,8 @@ def load(model, reload, **kwargs):
         settings_payload["override_kv"] = kwargs["override_kv"]
     if kwargs.get("task_timeout") is not None:
         settings_payload["task_timeout"] = kwargs["task_timeout"]
+    if kwargs.get("device") is not None:
+        settings_payload["gpu_device"] = kwargs["device"]
     if kwargs.get("cpu_mode"):
         settings_payload["cpu_mode"] = True
         settings_payload["gpu_layers"] = 0

@@ -3,6 +3,8 @@ Manages the llama-server process lifecycle.
 The app runs independently - llama-server is only running when a model is loaded.
 """
 
+import os
+import platform
 import socket
 import subprocess
 import time
@@ -209,7 +211,53 @@ class ServerManager:
             llama3_tmpl = "<|begin_of_text|>{% for message in messages %}{{'<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n' + message['content'] + '<|eot_id|>'}}{% endfor %}{% if add_generation_prompt %}{{'<|start_header_id|>assistant<|end_header_id|>\\n\\n'}}{% endif %}"
             cmd.extend(["--chat-template", llama3_tmpl])
 
+        # Multi-GPU and Device settings
+        split_mode = params.get("split_mode")
+        if split_mode and str(split_mode).lower() in ("none", "layer", "row", "tensor"):
+            cmd.extend(["--split-mode", str(split_mode).lower()])
+
+        tensor_split = params.get("tensor_split")
+        if tensor_split:
+            cmd.extend(["--tensor-split", str(tensor_split)])
+
+        main_gpu = params.get("main_gpu")
+        if main_gpu is not None and str(main_gpu).strip() != "":
+            cmd.extend(["--main-gpu", str(main_gpu).strip()])
+
+        # Device offloading on macOS (Metal)
+        if platform.system() == "Darwin" and not force_cpu:
+            gpu_dev = params.get("gpu_device")
+            if gpu_dev and str(gpu_dev).lower() not in ("all", "auto"):
+                dev_str = str(gpu_dev).strip()
+                if not dev_str.upper().startswith("METAL"):
+                    dev_str = f"METAL{dev_str}"
+                cmd.extend(["--device", dev_str])
+
         return cmd
+
+    def _build_env(self, params: dict | None = None, force_cpu: bool = False) -> dict[str, str]:
+        env = os.environ.copy()
+        if force_cpu or (params and params.get("cpu_mode")):
+            return env
+
+        params = params or {}
+        defaults = config_loader.get_llama_defaults()
+        gpu_device = params.get("gpu_device", defaults.get("gpu_device", "all"))
+        if not gpu_device or str(gpu_device).lower() in ("all", "auto"):
+            return env
+
+        dev_str = str(gpu_device).strip()
+        if dev_str.upper().startswith("CUDA"):
+            dev_str = dev_str[4:]
+        elif dev_str.upper().startswith("HIP"):
+            dev_str = dev_str[3:]
+
+        if platform.system() == "Linux":
+            env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            env["CUDA_VISIBLE_DEVICES"] = dev_str
+            env["ROCR_VISIBLE_DEVICES"] = dev_str
+
+        return env
 
     # A file llama.cpp cannot parse fails identically without a GPU, so these
     # make the CPU retry pointless rather than merely slow.
@@ -325,11 +373,13 @@ class ServerManager:
                 f.write(f"Model Path: {model}\n")
                 f.write(f"Command: {' '.join(cmd)}\n\n")
                 f.flush()
+                env = self._build_env(params, force_cpu=cpu_mode)
                 self._process = subprocess.Popen(
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
                     cwd=Path(cmd[0]).parent,
+                    env=env,
                 )
 
             if self._wait_for_ready():
@@ -368,11 +418,13 @@ class ServerManager:
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
 
+                    fallback_env = self._build_env(params, force_cpu=True)
                     self._process = subprocess.Popen(
                         cmd_fallback,
                         stdout=f,
                         stderr=subprocess.STDOUT,
                         cwd=Path(cmd_fallback[0]).parent,
+                        env=fallback_env,
                     )
 
                 if self._wait_for_ready():

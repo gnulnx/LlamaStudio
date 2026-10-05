@@ -265,10 +265,15 @@ class DiscoverView(StudioView):
 
     def update_memory(self) -> None:
         gpu = self.app.gpu
-        memory = gpu.get("vram", 0)
-        self.query_one("#hub-gpu", Static).update(
-            Text(f"{gpu.get('name', 'GPU unavailable')}\nReported memory: {memory} GiB")
-        )
+        devices = gpu.get("devices", [])
+        if len(devices) > 1:
+            tot_sys = gpu.get("total_system_vram")
+            memory = round(tot_sys) if tot_sys else sum(d.get("vram", 0) for d in devices)
+            card_text = f"{len(devices)} GPUs Detected\nTotal VRAM: {memory} GiB across devices"
+        else:
+            memory = gpu.get("vram", 0)
+            card_text = f"{gpu.get('name', 'GPU unavailable')}\nReported memory: {memory} GiB"
+        self.query_one("#hub-gpu", Static).update(Text(card_text))
         name = str(self.query_one("#hub-quant", Select).value)
         file = self.files.get(name, {})
         size = file.get("size") or (file.get("lfs") or {}).get("size") or 0
