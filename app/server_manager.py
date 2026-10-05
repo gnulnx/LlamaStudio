@@ -3,6 +3,7 @@ Manages the llama-server process lifecycle.
 The app runs independently - llama-server is only running when a model is loaded.
 """
 
+import functools
 import os
 import platform
 import socket
@@ -135,11 +136,15 @@ class ServerManager:
         if threads and int(threads) > 0:
             cmd.extend(["--threads", str(threads)])
 
-        # Handle mmap
-        if not mmap:
-            cmd.append("--no-mmap")
+        # Handle mmap / load-mode
+        if self._supports_load_mode(binary_path):
+            if not mmap:
+                cmd.extend(["--load-mode", "none"])
         else:
-            cmd.append("--mmap")
+            if not mmap:
+                cmd.append("--no-mmap")
+            else:
+                cmd.append("--mmap")
 
         # Handle seed
         if seed is not None and int(seed) >= 0:
@@ -267,6 +272,21 @@ class ServerManager:
         "gguf_init_from_reader",
         "unknown model architecture",
     )
+
+    @staticmethod
+    @functools.lru_cache(maxsize=4)
+    def _supports_load_mode(binary_path: str) -> bool:
+        """Check if the llama-server binary supports modern --load-mode flag."""
+        try:
+            output = subprocess.check_output(
+                [binary_path, "--help"],
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=5,
+            )
+            return "--load-mode" in output
+        except Exception:
+            return False
 
     @property
     def last_error(self) -> str | None:
