@@ -2225,6 +2225,21 @@
                             </div>
                         </div>
 
+                        <!-- Parallel Slots -->
+                        <div class="control-group">
+                            <div class="control-header">
+                                <div>
+                                    <span class="control-label">Parallel Slots</span>
+                                    <div class="control-sublabel">Concurrent request slots (1 for dedicated agent/chat)</div>
+                                </div>
+                                <span class="control-value-text" id="valText-parallel">1</span>
+                            </div>
+                            <div class="slider-wrapper">
+                                <input type="range" id="param-parallel" min="1" max="8" step="1" value="1" oninput="updateParamText('parallel', this.value)">
+                                <input type="number" id="num-parallel" min="1" max="8" value="1" oninput="syncParamSlider('parallel', this.value)">
+                            </div>
+                        </div>
+
                         <!-- Toggles -->
                         <div class="toggle-row">
                             <div>
@@ -3070,6 +3085,7 @@
             devEl.value = settings.gpu_device || 'all';
         }
         setParamValue('threads', settings.threads || 4);
+        setParamValue('parallel', settings.parallel !== undefined ? settings.parallel : 1);
         
         document.getElementById('param-flash').checked = settings.flash_attn !== undefined ? settings.flash_attn : true;
         document.getElementById('param-mmap').checked = settings.mmap !== undefined ? settings.mmap : true;
@@ -3159,6 +3175,7 @@
             gpu_layers: parseInt(document.getElementById('param-gpu').value),
             gpu_device: document.getElementById('param-gpu-device') ? document.getElementById('param-gpu-device').value : 'all',
             threads: parseInt(document.getElementById('param-threads').value),
+            parallel: parseInt(document.getElementById('param-parallel') ? document.getElementById('param-parallel').value : 1) || 1,
             flash_attn: document.getElementById('param-flash').checked,
             mmap: document.getElementById('param-mmap').checked,
             cpu_mode: document.getElementById('param-cpu-mode').checked,
