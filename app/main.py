@@ -180,7 +180,10 @@ async def reload_current_model():
     model_params = dict(server._current_params)
     model_params.pop("mmproj", None)
     if not server.load_model(model_path, model_params):
-        raise HTTPException(500, "Failed to reload the model with its vision projector.")
+        raise HTTPException(
+            500,
+            server.last_error or "Failed to reload the model with its vision projector.",
+        )
 
     return {
         "status": "ok",

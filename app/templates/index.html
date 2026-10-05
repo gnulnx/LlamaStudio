@@ -3082,7 +3082,7 @@
 
         // Populate new load settings
         document.getElementById('param-override-kv').value = settings.override_kv || '';
-        document.getElementById('param-mmproj').value = settings.mmproj || model.mmproj_path || '';
+        document.getElementById('param-mmproj').value = (settings.mmproj !== undefined) ? settings.mmproj : (model.mmproj_path || '');
         document.getElementById('param-chat-template').value = settings.chat_template || '';
         document.getElementById('param-custom-template').value = settings.custom_template || '';
         toggleCustomTemplateTextarea();

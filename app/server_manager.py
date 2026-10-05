@@ -335,14 +335,28 @@ class ServerManager:
 
         from .model_manager import find_mmproj
 
-        mmproj = str(params.get("mmproj") or find_mmproj(model) or "").strip()
-        if mmproj:
-            mmproj_path = Path(mmproj).expanduser().resolve()
-            if not mmproj_path.is_file():
-                self._last_error = f"Multimodal projector not found: {mmproj_path}"
-                logger.error("[server] Multimodal projector not found: %s", mmproj_path)
-                return False
-            params["mmproj"] = str(mmproj_path)
+        if "mmproj" in params:
+            explicit_mmproj = str(params.get("mmproj") or "").strip()
+            if not explicit_mmproj or explicit_mmproj.lower() in (
+                "none",
+                "off",
+                "disable",
+                "disabled",
+                "false",
+            ):
+                params["mmproj"] = None
+            else:
+                mmproj_path = Path(explicit_mmproj).expanduser().resolve()
+                if not mmproj_path.is_file():
+                    self._last_error = f"Multimodal projector not found: {mmproj_path}"
+                    logger.error("[server] Multimodal projector not found: %s", mmproj_path)
+                    return False
+                params["mmproj"] = str(mmproj_path)
+        else:
+            found = find_mmproj(model)
+            if found:
+                mmproj_path = Path(found).expanduser().resolve()
+                params["mmproj"] = str(mmproj_path) if mmproj_path.is_file() else None
 
         # Determine initial cpu mode from params
         cpu_mode = params.get("cpu_mode", False) or int(params.get("gpu_layers", 999)) == 0
@@ -387,9 +401,71 @@ class ServerManager:
                 self._is_loading = False
                 return True
 
+            # Check for startup errors
+            startup_errors = self._startup_errors(log_file)
+
+            # PROJECTOR FALLBACK LOGIC
+            # If load failed specifically due to an incompatible/broken multimodal projector,
+            # retry loading the base language model without the mmproj argument.
+            is_mmproj_error = bool(params.get("mmproj")) and any(
+                any(
+                    marker in err.lower()
+                    for marker in [
+                        "failed to load clip model",
+                        "failed to load multimodal model",
+                        "failed to get memory usage of mmproj",
+                        "unknown projector type",
+                        "clip_init:",
+                        "clip_graph_",
+                        "[mtmd]",
+                    ]
+                )
+                for err in startup_errors
+            )
+
+            if is_mmproj_error:
+                logger.warning(
+                    "[server] Multimodal projector failed to load; retrying base model without mmproj..."
+                )
+                with open(log_file, "a") as f:
+                    f.write(
+                        "\n[WARNING] Multimodal projector failed to load. Retrying base model without mmproj...\n\n"
+                    )
+
+                self.eject_model()
+                self._current_model = model
+                self._current_model_name = Path(model).stem
+                params_no_mmproj = dict(params)
+                params_no_mmproj["mmproj"] = None
+                self._current_params = params_no_mmproj
+                self._is_loading = True
+
+                cmd_no_mmproj = self._build_command(model, params_no_mmproj, force_cpu=cpu_mode)
+                with open(log_file, "a") as f:
+                    f.write("--- Retrying Without Multimodal Projector ---\n")
+                    f.write(f"Command: {' '.join(cmd_no_mmproj)}\n\n")
+                    f.flush()
+                    env = self._build_env(params_no_mmproj, force_cpu=cpu_mode)
+                    self._process = subprocess.Popen(
+                        cmd_no_mmproj,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        cwd=Path(cmd_no_mmproj[0]).parent,
+                        env=env,
+                    )
+
+                if self._wait_for_ready():
+                    logger.info(
+                        f"[server] Model loaded successfully without mmproj: {self._current_model_name}"
+                    )
+                    self._is_loading = False
+                    return True
+
+                # Refresh startup errors after the no-mmproj attempt
+                startup_errors = self._startup_errors(log_file)
+
             # AUTOMATIC FALLBACK LOGIC
             # If startup failed and we were NOT in CPU mode, try starting in CPU Mode as a fallback!
-            startup_errors = self._startup_errors(log_file)
             if not cpu_mode and self._retry_on_cpu_is_futile(startup_errors):
                 logger.error(
                     "[server] llama-server cannot read this model; skipping the CPU fallback."
@@ -404,11 +480,14 @@ class ServerManager:
                 self.eject_model()
                 self._current_model = model
                 self._current_model_name = Path(model).stem
-                self._current_params = params
+                fallback_params = dict(params)
+                if is_mmproj_error:
+                    fallback_params["mmproj"] = None
+                self._current_params = fallback_params
                 self._is_loading = True
 
                 # Build fallback command with force_cpu=True
-                cmd_fallback = self._build_command(model, params, force_cpu=True)
+                cmd_fallback = self._build_command(model, fallback_params, force_cpu=True)
                 logger.info(
                     f"[server] Loading fallback: {model} with cmd: {' '.join(cmd_fallback)}"
                 )

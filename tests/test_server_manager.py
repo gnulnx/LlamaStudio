@@ -254,6 +254,51 @@ class TestStaleErrorIsNotReported(unittest.TestCase):
         self.assertNotEqual(self.server.last_error, self.STALE)
         self.assertIn("projector not found", self.server.last_error.lower())
 
+    def test_explicit_empty_or_none_mmproj_prevents_autodiscovery(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+
+        params = {"mmproj": ""}
+        with (
+            patch("app.model_manager.find_mmproj", return_value="/discovered/projector.gguf"),
+            patch.object(
+                ServerManager, "_build_command", return_value=["/bin/true", "-m", str(model)]
+            ) as mock_build,
+            patch.object(ServerManager, "_wait_for_ready", return_value=True),
+            patch("app.server_manager.subprocess.Popen") as mock_popen,
+        ):
+            mock_popen.return_value.poll.return_value = None
+            loaded = self.server.load_model(str(model), params)
+            self.assertTrue(loaded)
+            self.assertIsNone(self.server._current_params.get("mmproj"))
+            mock_build.assert_called_once()
+            self.assertIsNone(mock_build.call_args[0][1].get("mmproj"))
+
+    def test_mmproj_error_triggers_fallback_without_projector(self):
+        model = Path(self.directory) / "present.gguf"
+        model.write_bytes(b"GGUF")
+        proj = Path(self.directory) / "projector.gguf"
+        proj.write_bytes(b"CLIP")
+
+        with (
+            patch.object(
+                ServerManager,
+                "_startup_errors",
+                side_effect=[
+                    [
+                        "clip_init: failed to load model: load_hparams: unknown projector type: gemma4uv"
+                    ],
+                    [],
+                ],
+            ),
+            patch.object(ServerManager, "_wait_for_ready", side_effect=[False, True]),
+            patch("app.server_manager.subprocess.Popen") as mock_popen,
+        ):
+            mock_popen.return_value.poll.return_value = None
+            loaded = self.server.load_model(str(model), {"mmproj": str(proj)})
+            self.assertTrue(loaded)
+            self.assertIsNone(self.server._current_params.get("mmproj"))
+
     def test_an_exception_during_load_is_recorded(self):
         model = Path(self.directory) / "present.gguf"
         model.write_bytes(b"GGUF")
