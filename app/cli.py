@@ -684,6 +684,14 @@ def load(model, reload, **kwargs):
     help="Enable or disable model reasoning for this request without reloading the model",
 )
 @click.option(
+    "-w",
+    "--workspace",
+    "workspace_path",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Workspace directory to execute tools against (defaults to current working directory)",
+)
+@click.option(
     "--image",
     "image_paths",
     multiple=True,
@@ -728,36 +736,51 @@ def oneshot(prompt, model, **kwargs):
         console.print(f"[bold red]Failed to contact LlamaStudio server: {e}[/bold red]")
         return
 
+    target_workspace = Path(kwargs.get("workspace_path") or Path.cwd()).resolve()
+
     image_payloads = []
-    if kwargs.get("image_paths"):
-        from app.tools import ToolResult, read_file
-
-        for image_path in kwargs["image_paths"]:
-            result = read_file(image_path)
-            if not isinstance(result, ToolResult) or not result.images:
-                detail = result if isinstance(result, str) else "Unsupported image."
-                console.print(f"[bold red]Could not attach '{image_path}': {detail}[/bold red]")
-                return
-            image_payloads.extend(result.images)
-
     audio_payloads = []
-    if kwargs.get("audio_path"):
-        from app.tools import ToolResult, read_file
+    if kwargs.get("image_paths") or kwargs.get("audio_path"):
+        from app.tools import (
+            ToolResult,
+            read_file,
+            reset_current_workspace_root,
+            set_current_workspace_root,
+        )
 
-        audio_path = kwargs["audio_path"]
-        result = read_file(audio_path)
-        if not isinstance(result, ToolResult) or not result.audios:
-            detail = result if isinstance(result, str) else "Unsupported audio."
-            console.print(f"[bold red]Could not attach '{audio_path}': {detail}[/bold red]")
-            return
-        audio_payloads.extend(result.audios)
+        ws_token = set_current_workspace_root(target_workspace)
+        try:
+            if kwargs.get("image_paths"):
+                for image_path in kwargs["image_paths"]:
+                    result = read_file(image_path)
+                    if not isinstance(result, ToolResult) or not result.images:
+                        detail = result if isinstance(result, str) else "Unsupported image."
+                        console.print(
+                            f"[bold red]Could not attach '{image_path}': {detail}[/bold red]"
+                        )
+                        return
+                    image_payloads.extend(result.images)
+
+            if kwargs.get("audio_path"):
+                audio_path = kwargs["audio_path"]
+                result = read_file(audio_path)
+                if not isinstance(result, ToolResult) or not result.audios:
+                    detail = result if isinstance(result, str) else "Unsupported audio."
+                    console.print(f"[bold red]Could not attach '{audio_path}': {detail}[/bold red]")
+                    return
+                audio_payloads.extend(result.audios)
+        finally:
+            reset_current_workspace_root(ws_token)
 
     # Start a fresh conversation to avoid history pollution across sequential oneshot runs
     with contextlib.suppress(Exception):
         httpx.post(f"{API_BASE_URL}/api/chat/new")
 
     # 3. Construct chat payload
-    payload = {"message": prompt}
+    payload = {
+        "message": prompt,
+        "workspace_root": str(target_workspace),
+    }
     if image_payloads:
         payload["images"] = image_payloads
     if audio_payloads:

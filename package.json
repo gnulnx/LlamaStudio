@@ -5,6 +5,9 @@
   "scripts": {
     "test": "jest"
   },
+  "jest": {
+    "roots": ["<rootDir>/tests/frontend"]
+  },
   "devDependencies": {
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0"

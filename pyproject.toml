@@ -59,3 +59,6 @@ include = ["app*"]
 [tool.setuptools.package-data]
 app = ["templates/*.html", "static/*.png", "static/*.svg"]
 "app.tui" = ["*.tcss", "*.tape", "*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
