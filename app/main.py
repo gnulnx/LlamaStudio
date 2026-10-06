@@ -578,6 +578,16 @@ async def send_message(request: Request):
     top_p = body.get("top_p")
     max_tokens = body.get("max_tokens")
     system_prompt = body.get("system_prompt")
+    workspace_root = body.get("workspace_root")
+    logger.info("[chat] send_message incoming workspace_root: %s", workspace_root)
+    if workspace_root:
+        workspace_path = Path(workspace_root).resolve()
+        if not workspace_path.is_dir():
+            raise HTTPException(400, f"Workspace directory not found: {workspace_root}")
+        workspace_root = str(workspace_path)
+    else:
+        workspace_root = None
+
     top_k = body.get("top_k")
     min_p = body.get("min_p")
     repeat_penalty = body.get("repeat_penalty")
@@ -620,6 +630,7 @@ async def send_message(request: Request):
             audios=audios,
             vision_recovery=vision_recovery,
             enable_thinking=enable_thinking,
+            workspace_root=workspace_root,
         )
         yield "data: {'type': 'end'}\n\n"
 

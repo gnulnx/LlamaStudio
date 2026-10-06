@@ -515,6 +515,64 @@ class TestChatStreaming(unittest.TestCase):
         self.assertIn("Tool output truncated", bounded)
         self.assertLess(len(bounded), MAX_TOOL_RESULT_CHARS + 100)
 
+    def test_stream_chat_injects_workspace_root_and_sets_context(self):
+        CapturingHttpClient.payloads = []
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_dir = Path(tmp_dir).resolve()
+            conversation_path = str(workspace_dir / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(max_tool_iterations=1),
+                ),
+                patch("app.chat.httpx.Client", CapturingHttpClient),
+            ):
+                list(chat.stream_chat("hello", workspace_root=workspace_dir))
+
+            from app.tools import _current_workspace_root
+
+            self.assertIsNone(_current_workspace_root.get())
+            self.assertTrue(len(CapturingHttpClient.payloads) > 0)
+            messages = CapturingHttpClient.payloads[0]["messages"]
+            system_msg = next((m for m in messages if m["role"] == "system"), None)
+            self.assertIsNotNone(system_msg)
+            self.assertIn(f"Current workspace directory: {workspace_dir}", system_msg["content"])
+
+    def test_stream_chat_tool_execution_observes_effective_workspace_root(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_dir = Path(tmp_dir).resolve()
+            conversation_path = str(workspace_dir / "conversations.json")
+            chat._conversations = {}
+            chat._active_id = ""
+
+            observed_roots = []
+
+            def fake_execute_tool(name, args):
+                from app.tools import get_effective_workspace_root
+
+                observed_roots.append(get_effective_workspace_root())
+                return "listed files"
+
+            with (
+                patch("app.chat.settings.CONVERSATIONS_FILE", conversation_path),
+                patch(
+                    "app.chat.config_loader.get_chat_defaults",
+                    return_value=self.chat_defaults(max_tool_iterations=1),
+                ),
+                patch("app.chat.httpx.Client", FakeToolHttpClient),
+                patch("app.tools.execute_tool", side_effect=fake_execute_tool),
+            ):
+                list(chat.stream_chat("list files", workspace_root=workspace_dir))
+
+            self.assertEqual(observed_roots, [workspace_dir])
+            from app.tools import _current_workspace_root
+
+            self.assertIsNone(_current_workspace_root.get())
+
 
 if __name__ == "__main__":
     unittest.main()

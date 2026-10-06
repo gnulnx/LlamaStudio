@@ -7,7 +7,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.tools import check_path_safe, list_dir
+from app.tools import (
+    check_path_safe,
+    get_effective_workspace_root,
+    list_dir,
+    reset_current_workspace_root,
+    run_command,
+    set_current_workspace_root,
+)
 
 
 class TestWorkspaceSandboxing(unittest.TestCase):
@@ -72,6 +79,52 @@ class TestWorkspaceSandboxing(unittest.TestCase):
             ):
                 result = list_dir(str(tmp_path))
                 self.assertIn("test_file.txt", result)
+
+    def test_task_local_workspace_root_override(self):
+        """Test task-local workspace root override dynamically switches sandbox target."""
+        with (
+            tempfile.TemporaryDirectory() as default_dir,
+            tempfile.TemporaryDirectory() as custom_dir,
+        ):
+            default_path = Path(default_dir).resolve()
+            custom_path = Path(custom_dir).resolve()
+            (default_path / "default.txt").touch()
+            (custom_path / "custom.txt").touch()
+
+            with (
+                patch("app.tools.config_loader.get_workspace_root", return_value=str(default_path)),
+                patch("app.tools.config_loader.sandbox_disabled", return_value=False),
+            ):
+                # By default, default_path is effective
+                self.assertEqual(get_effective_workspace_root(), default_path)
+                safe_default = check_path_safe("default.txt")
+                self.assertEqual(safe_default, default_path / "default.txt")
+
+                # Set task-local override
+                token = set_current_workspace_root(custom_path)
+                try:
+                    self.assertEqual(get_effective_workspace_root(), custom_path)
+                    safe_custom = check_path_safe("custom.txt")
+                    self.assertEqual(safe_custom, custom_path / "custom.txt")
+
+                    # Attempting to access default.txt now fails because it's outside custom_path
+                    with self.assertRaises(ValueError):
+                        check_path_safe(str(default_path / "default.txt"))
+
+                    # list_dir lists within custom_path
+                    listing = list_dir(".")
+                    self.assertIn("custom.txt", listing)
+                    self.assertNotIn("default.txt", listing)
+
+                    # run_command runs inside custom_path
+                    cmd_res = run_command("pwd")
+                    self.assertIn(str(custom_path), cmd_res)
+                finally:
+                    reset_current_workspace_root(token)
+
+                # After reset, returns to default_path
+                self.assertEqual(get_effective_workspace_root(), default_path)
+                self.assertEqual(check_path_safe("default.txt"), default_path / "default.txt")
 
 
 if __name__ == "__main__":

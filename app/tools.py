@@ -6,6 +6,7 @@ Defines OpenAI-compatible schemas and implements execution for workspace-sandbox
 from __future__ import annotations
 
 import base64
+import contextvars
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -18,6 +19,29 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 MAX_AUDIO_SECONDS = 10 * 60
 MODEL_AUDIO_SAMPLE_RATE = 16_000
+
+_current_workspace_root: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "current_workspace_root", default=None
+)
+
+
+def set_current_workspace_root(root: str | Path | None) -> contextvars.Token:
+    """Set a thread-safe / task-local workspace root override."""
+    target = Path(root).resolve() if root else None
+    return _current_workspace_root.set(target)
+
+
+def reset_current_workspace_root(token: contextvars.Token) -> None:
+    """Reset the task-local workspace root override."""
+    _current_workspace_root.reset(token)
+
+
+def get_effective_workspace_root() -> Path:
+    """Return the active task-local workspace root or fall back to the configured workspace root."""
+    override = _current_workspace_root.get()
+    if override is not None:
+        return override
+    return Path(config_loader.get_workspace_root()).resolve()
 
 
 @dataclass(frozen=True)
@@ -118,7 +142,7 @@ def check_path_safe(file_path: str) -> Path:
     if config_loader.sandbox_disabled():
         return target.resolve()
 
-    workspace_root = Path(config_loader.get_workspace_root()).resolve()
+    workspace_root = get_effective_workspace_root()
     # If relative, resolve against workspace root
     if not target.is_absolute():
         target = workspace_root / target
@@ -219,7 +243,7 @@ def list_dir(dir_path: str = ".") -> str:
         if not safe_path.is_dir():
             return f"Error: '{dir_path}' is a file, not a directory."
 
-        workspace_root = Path(config_loader.get_workspace_root()).resolve()
+        workspace_root = get_effective_workspace_root()
         entries = []
         for p in safe_path.iterdir():
             try:
@@ -252,7 +276,7 @@ def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
     try:
         logger.info(f"[tools] Executing command: {command}")
-        workspace_root = Path(config_loader.get_workspace_root()).resolve()
+        workspace_root = get_effective_workspace_root()
         res = subprocess.run(
             command,
             shell=True,
@@ -368,6 +392,9 @@ ALL_TOOLS = [
 
 def execute_tool(name: str, arguments: dict) -> str | ToolResult:
     """Central tool dispatcher."""
+    logger.info(
+        "[tools] execute_tool: %s (effective root: %s)", name, get_effective_workspace_root()
+    )
     if name == "write_file":
         return write_file(arguments.get("file_path"), arguments.get("content"))
     elif name == "read_file":

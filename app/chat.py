@@ -13,6 +13,7 @@ import time
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import ClassVar
 
 import httpx
@@ -507,9 +508,15 @@ class ChatManager:
         audios: list[AudioAttachment] | None = None,
         vision_recovery: dict | None = None,
         enable_thinking: bool | None = None,
+        workspace_root: str | Path | None = None,
     ) -> Generator[str, None, None]:
         """Send a message to llama-server and stream the response, automatically executing tools if requested."""
-        from .tools import ALL_TOOLS, execute_tool
+        from .tools import (
+            ALL_TOOLS,
+            execute_tool,
+            reset_current_workspace_root,
+            set_current_workspace_root,
+        )
 
         conv = self.get_active()
         if conv is None:
@@ -539,6 +546,17 @@ class ChatManager:
             has_conversation_audio = any(msg.audios for msg in conv.messages)
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+            if workspace_root:
+                ws_path = str(Path(workspace_root).resolve())
+                workspace_instruction = (
+                    f"Current workspace directory: {ws_path}. "
+                    "Tool operations (reading/writing files, listing directories, executing commands) "
+                    "are scoped to this directory."
+                )
+                if messages and messages[0]["role"] == "system":
+                    messages[0]["content"] = f"{messages[0]['content']}\n\n{workspace_instruction}"
+                else:
+                    messages.append({"role": "system", "content": workspace_instruction})
             if has_conversation_images or has_conversation_audio:
                 media_instruction = (
                     "Media in this conversation is already attached as multimodal input. "
@@ -936,7 +954,11 @@ class ChatManager:
 
                         # Execute the tool
                         logger.info(f"Executing tool '{name}' with arguments: {args}")
-                        tool_result = execute_tool(name, args)
+                        ws_token = set_current_workspace_root(workspace_root)
+                        try:
+                            tool_result = execute_tool(name, args)
+                        finally:
+                            reset_current_workspace_root(ws_token)
                         result_images = []
                         result_audios = []
                         if isinstance(tool_result, str):

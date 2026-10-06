@@ -288,6 +288,42 @@ class TestCliLoadSettings(unittest.TestCase):
         self.assertEqual(payload["audios"], tool_result.audios)
         self.assertIs(payload["enable_thinking"], False)
 
+    def test_oneshot_defaults_workspace_to_cwd(self):
+        with (
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+            patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+            patch(
+                "app.cli.httpx.stream",
+                return_value=FakeChatStreamResponse(),
+            ) as mock_stream,
+        ):
+            result = CliRunner().invoke(oneshot, ["Hello from here"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = mock_stream.call_args.kwargs["json"]
+        self.assertEqual(payload["message"], "Hello from here")
+        self.assertEqual(payload["workspace_root"], str(Path.cwd().resolve()))
+
+    def test_oneshot_custom_workspace_option(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = str(Path(tmp_dir).resolve())
+            with (
+                patch("app.cli.is_server_online", return_value=True),
+                patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+                patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+                patch(
+                    "app.cli.httpx.stream",
+                    return_value=FakeChatStreamResponse(),
+                ) as mock_stream,
+            ):
+                result = CliRunner().invoke(oneshot, ["-w", tmp_path, "Hello from workspace"])
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            payload = mock_stream.call_args.kwargs["json"]
+            self.assertEqual(payload["message"], "Hello from workspace")
+            self.assertEqual(payload["workspace_root"], tmp_path)
+
     def test_oneshot_renders_structured_server_error(self):
         with (
             patch("app.cli.is_server_online", return_value=True),
