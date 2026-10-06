@@ -196,6 +196,7 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `tui` | `lls tui [--view discover\|models\|chat\|logs]` | Interactive terminal interface with mouse, keyboard, and adaptive layouts. Starts the backend without opening a browser when needed. |
 | `reload` | `lls reload` | Gracefully restarts the desktop FastAPI application backend. |
 | `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
+| `update` | `lls update [--check] [--yes]` | Check PyPI for a stable release and upgrade the installation running this command. |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
 | `eject` | `lls eject` | Gracefully unloads the active model to free GPU and CPU RAM. |
@@ -205,6 +206,26 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `speech load/eject` | `lls speech load [MODEL] [--gpu\|--cpu]` | Starts or stops the persistent speech-to-text server independently of the chat model. |
 | `speech transcribe` | `lls speech transcribe AUDIO` | Transcribes a workspace audio file locally, with optional language and English translation controls. |
 | `speech record` | `lls speech record [--device default]` | Starts terminal microphone capture immediately; press Enter to stop and print the transcript. |
+
+Interactive `lls start`, `lls status`, and `lls tui` check PyPI for updates at most
+once an hour. If a newer stable release supports your Python and platform, you
+can choose to install it. Declining defers that version's prompt for 24 hours;
+`lls update` checks immediately. Offline checks are quiet, and scripts,
+screenshots, and CI do not trigger automatic checks or prompts.
+
+Use `lls --no-update-check status` or `LLAMASTUDIO_NO_UPDATE_CHECK=1` to disable
+automatic checks. `lls update --check` only reports availability;
+`lls update --yes` explicitly installs without a prompt. `lls --version` reports
+the installed package version.
+
+Upgrades use pip or uv with the Python interpreter running `lls`, including
+virtualenvs on Linux and macOS; there is no Windows platform restriction.
+Editable/source installs are left for you to update with git. OS-managed Python
+installs require a virtualenv or pipx instead of overriding system protections.
+After a successful upgrade, rerun your command to load the new code. An existing
+backend keeps running until you restart it, so an upgrade does not eject models.
+Users on 1.4.0 or earlier need one manual upgrade to 1.5.0 to get this feature;
+older releases do not contain the update checker.
 
 Set up push-to-talk once, then use the microphone beside the chat input:
 
