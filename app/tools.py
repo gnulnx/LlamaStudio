@@ -139,9 +139,6 @@ def prepare_audio_for_model(audio_bytes: bytes, mime_type: str) -> tuple[bytes, 
 def check_path_safe(file_path: str) -> Path:
     """Resolve file path and guarantee it remains strictly within the workspace root unless sandboxing is disabled."""
     target = Path(file_path)
-    if config_loader.sandbox_disabled():
-        return target.resolve()
-
     workspace_root = get_effective_workspace_root()
     # If relative, resolve against workspace root
     if not target.is_absolute():
@@ -149,8 +146,8 @@ def check_path_safe(file_path: str) -> Path:
 
     target = target.resolve()
 
-    # Check if target is indeed inside workspace_root
-    if not str(target).startswith(str(workspace_root)):
+    # Disabling containment does not change where relative paths are resolved.
+    if not config_loader.sandbox_disabled() and not target.is_relative_to(workspace_root):
         raise ValueError(
             f"Permission Denied: Target path '{file_path}' lies outside the workspace directory."
         )

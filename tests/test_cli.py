@@ -324,6 +324,31 @@ class TestCliLoadSettings(unittest.TestCase):
             self.assertEqual(payload["message"], "Hello from workspace")
             self.assertEqual(payload["workspace_root"], tmp_path)
 
+    def test_oneshot_relative_media_uses_workspace_with_sandbox_disabled(self):
+        media = (
+            ("--image", "frame.png", b"\x89PNG\r\n\x1a\nimage", "images"),
+            ("--audio", "recording.wav", b"RIFF\x24\x00\x00\x00WAVEfmt ", "audios"),
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir).resolve()
+            for option, name, content, payload_key in media:
+                with self.subTest(option=option):
+                    (workspace / name).write_bytes(content)
+                    with (
+                        patch("app.cli.is_server_online", return_value=True),
+                        patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+                        patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+                        patch("app.cli.httpx.stream", return_value=FakeChatStreamResponse()) as stream,
+                        patch("app.tools.config_loader.sandbox_disabled", return_value=True),
+                    ):
+                        result = CliRunner().invoke(
+                            oneshot, ["-w", str(workspace), option, name, "Review this media"]
+                        )
+                    self.assertEqual(result.exit_code, 0, result.output)
+                    payload = stream.call_args.kwargs["json"]
+                    self.assertEqual(payload["workspace_root"], str(workspace))
+                    self.assertEqual(payload[payload_key][0]["name"], name)
+
     def test_oneshot_renders_structured_server_error(self):
         with (
             patch("app.cli.is_server_online", return_value=True),
