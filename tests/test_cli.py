@@ -338,7 +338,9 @@ class TestCliLoadSettings(unittest.TestCase):
                         patch("app.cli.is_server_online", return_value=True),
                         patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
                         patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
-                        patch("app.cli.httpx.stream", return_value=FakeChatStreamResponse()) as stream,
+                        patch(
+                            "app.cli.httpx.stream", return_value=FakeChatStreamResponse()
+                        ) as stream,
                         patch("app.tools.config_loader.sandbox_disabled", return_value=True),
                     ):
                         result = CliRunner().invoke(
