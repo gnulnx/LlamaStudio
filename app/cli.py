@@ -22,6 +22,7 @@ from app.tools import check_path_safe
 from app.tui.application import StudioApp
 from app.tui.demo import DemoError, record_demo
 from app.tui.themes import THEME_NAMES, create_theme_adapter, resolve_initial_theme
+from app.updates import UpdateError, run_update
 
 # Configure rich-click visual styling to match a premium terminal theme
 click.rich_click.USE_RICH_MARKUP = True
@@ -153,13 +154,43 @@ def select_launch_view_for_cli(consume_first_launch: bool = True) -> str:
 
 
 @click.group()
-def cli():
+@click.version_option(package_name="llamastudio")
+@click.option(
+    "--no-update-check",
+    is_flag=True,
+    envvar="LLAMASTUDIO_NO_UPDATE_CHECK",
+    help="Skip automatic PyPI checks and upgrade prompts.",
+)
+def cli(no_update_check: bool):
     """[cyan]LLamaStudio CLI (lls)[/cyan] - Manage your local LLMs and llama.cpp instances beautifully.
 
     Use this command-line utility to load/eject models, run real-time oneshot testing,
     and manage your background desktop server.
     """
     pass
+
+
+def check_for_updates() -> None:
+    """Offer updates before interactive launch commands, exiting after an installation."""
+    ctx = click.get_current_context()
+    if ctx.find_root().params.get("no_update_check"):
+        return
+    try:
+        if run_update(console, automatic=True):
+            ctx.exit()
+    except UpdateError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@cli.command()
+@click.option("--check", "check_only", is_flag=True, help="Check PyPI without installing.")
+@click.option("--yes", is_flag=True, help="Install the available upgrade without prompting.")
+def update(check_only: bool, yes: bool) -> None:
+    """Check for a stable release and upgrade this LlamaStudio installation."""
+    try:
+        run_update(console, check_only=check_only, yes=yes)
+    except UpdateError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @cli.command()
@@ -228,6 +259,8 @@ def tui(
         raise click.BadParameter(
             str(exc), param_hint="--palette" if palette else "--theme"
         ) from exc
+    if not screenshot:
+        check_for_updates()
     if is_server_online():
         if not wait_for_server_ready(timeout=3):
             raise click.ClickException(
@@ -286,6 +319,7 @@ def demo_tui(output: str, palette: str | None) -> None:
 @cli.command()
 def start():
     """Start the desktop app and open the browser to the right launch view."""
+    check_for_updates()
     config_loader.initialize_for_launch(Path.cwd())
 
     if is_server_online():
@@ -316,6 +350,7 @@ def start():
 @cli.command()
 def status():
     """Display the active server lifecycle state and loaded model metadata."""
+    check_for_updates()
     if not is_server_online():
         console.print(
             Panel(
