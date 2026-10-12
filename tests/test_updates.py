@@ -271,6 +271,22 @@ def test_decline_is_remembered_and_new_version_prompts_again(monkeypatch):
     assert confirm.call_count == 2
 
 
+def test_failed_upgrade_is_offered_again_on_next_launch(monkeypatch):
+    fake_installation(monkeypatch)
+    mock_pypi(monkeypatch, payload())
+    monkeypatch.setattr(updates, "is_interactive_terminal", lambda: True)
+    confirm = Mock(return_value=True)
+    monkeypatch.setattr(updates.click, "confirm", confirm)
+    install = Mock(side_effect=updates.UpdateError("Installer failed"))
+    monkeypatch.setattr(updates, "install_upgrade", install)
+    console = Console(file=io.StringIO())
+    for _ in range(2):
+        with pytest.raises(updates.UpdateError, match="Installer failed"):
+            updates.run_update(console, automatic=True)
+    assert confirm.call_count == 2
+    assert install.call_count == 2
+
+
 def test_next_launch_detects_release_published_after_previous_check(monkeypatch):
     fake_installation(monkeypatch, version="1.6.0")
     monkeypatch.setattr(updates, "is_interactive_terminal", lambda: True)

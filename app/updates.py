@@ -295,13 +295,18 @@ def run_update(
         if not interactive and not yes:
             console.print("Run lls update in a terminal, or lls update --yes to install.")
             return False
-        # Mark declined/failed prompts too so every command does not ask again.
+        # Remember declines, but a failed installation must remain retryable.
         state.update(prompted_version=str(candidate), prompted_at=time.time())
         _write_cache(state)
         if not yes and not click.confirm(f"Install LlamaStudio {candidate} now?", default=False):
             return False
         console.print(f"Installing LlamaStudio {candidate} in this Python environment…")
-        install_upgrade(installed, candidate)
+        try:
+            install_upgrade(installed, candidate)
+        except UpdateError:
+            state.update(prompted_version=None, prompted_at=None)
+            _write_cache(state)
+            raise
         state.update(latest=str(candidate), prompted_version=None, prompted_at=None)
         _write_cache(state)
         console.print(
