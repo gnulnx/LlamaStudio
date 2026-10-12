@@ -80,7 +80,7 @@ jobs:
           LLAMASTUDIO_CONFIG_DIR: ${{ runner.temp }}/inference-tests/config
           LLAMASTUDIO_MODEL_PROFILES_FILE: ${{ runner.temp }}/inference-tests/profiles.json
           LLAMASTUDIO_LOG_DIR: ${{ runner.temp }}/inference-tests/logs
-        run: python -m pytest tests/test_inference_setup.py tests/test_launcher.py -q
+        run: python -m pytest tests/test_inference_setup.py tests/test_launcher.py tests/test_tui_setup.py tests/test_process_ownership.py -q
       - name: Test a real managed engine from the installed wheel
         env:
           LLAMASTUDIO_INFERENCE_E2E: "1"

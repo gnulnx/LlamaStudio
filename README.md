@@ -52,7 +52,11 @@ LLamaStudio is compatible with **Linux** and **macOS** out-of-the-box. Choose yo
 ### Local inference setup and repair
 
 After `pip install llamastudio`, run `llamastudio` and choose **Set up local inference**
-when prompted in the desktop, or run:
+when prompted in the desktop, or launch `lls tui` and accept the terminal setup prompt.
+The TUI checks the connected backend and offers to restart an older, idle backend
+so it can use the new setup feature. It leaves a loaded/loading model running,
+and `--no-start` prevents a restart. Screenshots and CI never prompt or download.
+You can also run:
 
 ```bash
 lls doctor                         # Server, runtime libraries, available GPU devices
@@ -235,7 +239,7 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `update` | `lls update [--check] [--yes]` | Check PyPI for a stable release and upgrade the installation running this command. |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
-| `eject` | `lls eject` | Gracefully unloads the active model to free GPU and CPU RAM. |
+| `eject` | `lls eject` | Gracefully unloads the model started by this backend. Cleanup never signals unrelated processes sharing the inference port. |
 | `oneshot`| `lls oneshot [--image PATH] [--audio PATH] [--no-thinking] [--max-tokens N] "prompt"` | Streams text, optional reasoning, tool calls, and multimodal workspace images/audio directly in your terminal. Use `--no-thinking` for low-latency direct answers. |
 | `speech status` | `lls speech status` | Shows the local Whisper installation, selected model, compute mode, and server state. |
 | `speech install` | `lls speech install [--model small.en]` | Installs pinned, checksum-verified `whisper.cpp` Linux binaries and a local Whisper model. |
@@ -258,6 +262,7 @@ Upgrades use pip or uv with the Python interpreter running `lls`, including
 virtualenvs on Linux and macOS; there is no Windows platform restriction.
 Editable/source installs are left for you to update with git. OS-managed Python
 installs require a virtualenv or pipx instead of overriding system protections.
+The installer refreshes package listings to avoid stale pip/uv caches just after publication.
 After a successful upgrade, rerun your command to load the new code. An existing
 backend keeps running until you restart it, so an upgrade does not eject models.
 Users on 1.4.0 or earlier need one manual upgrade to 1.5.0 to get this feature;

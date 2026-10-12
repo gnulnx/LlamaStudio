@@ -10,6 +10,11 @@ from app.cli import cli, start_server_background
 
 
 class TestTuiCommand(unittest.TestCase):
+    def setUp(self):
+        setup = patch("app.cli.prepare_inference")
+        self.prepare = setup.start()
+        self.addCleanup(setup.stop)
+
     def terminal(self):
         return patch(
             "app.cli.sys",

@@ -11,6 +11,7 @@ from click.testing import CliRunner
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.cli import cli, load, load_saved_model_settings, oneshot, select_launch_view_for_cli, start
+from app.config import settings
 from app.tools import ToolResult
 
 
@@ -162,7 +163,7 @@ class TestCliLoadSettings(unittest.TestCase):
             result = CliRunner().invoke(start)
 
         self.assertEqual(result.exit_code, 0, result.output)
-        mock_open.assert_called_once_with("http://b2:8765/?view=models")
+        mock_open.assert_called_once_with(f"http://b2:{settings.APP_PORT}/?view=models")
 
     def test_start_skips_browser_in_headless_session(self):
         with (

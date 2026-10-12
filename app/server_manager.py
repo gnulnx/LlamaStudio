@@ -4,7 +4,6 @@ The app runs independently - llama-server is only running when a model is loaded
 """
 
 import functools
-import os
 import platform
 import socket
 import subprocess
@@ -421,6 +420,13 @@ class ServerManager:
                 return False
 
             if self.is_running:
+                if self._process is None:
+                    self._last_error = (
+                        f"Inference port {settings.LLAMA_SERVER_PORT} is owned by another process. "
+                        "Stop that process yourself or choose a different LLAMASTUDIO_LLAMA_SERVER_PORT."
+                    )
+                    logger.error("[server] %s", self._last_error)
+                    return False
                 logger.info("[server] Ejecting current model first...")
                 self.eject_model()
 
@@ -627,48 +633,9 @@ class ServerManager:
             self.eject_model()
             return False
 
-    def _kill_port_process(self) -> bool:
-        import signal
-
-        try:
-            output = (
-                subprocess
-                .check_output(["lsof", "-t", f"-i:{settings.LLAMA_SERVER_PORT}"])
-                .decode()
-                .strip()
-            )
-            if output:
-                killed = False
-                for pid_str in output.split("\n"):
-                    if pid_str.strip():
-                        pid = int(pid_str.strip())
-                        # Don't kill our own process
-                        if pid == os.getpid():
-                            continue
-                        logger.info(
-                            f"[server] Killing rogue process {pid} on port {settings.LLAMA_SERVER_PORT}"
-                        )
-                        try:
-                            os.kill(pid, signal.SIGTERM)
-                            # Wait a bit
-                            time.sleep(1)
-                            # Check if still running
-                            os.kill(pid, 0)
-                            # If no OSError was raised, it's still alive, so kill -9 it
-                            os.kill(pid, signal.SIGKILL)
-                        except OSError:
-                            pass
-                        killed = True
-                return killed
-        except Exception as e:
-            logger.error(
-                f"[server] Error killing process on port {settings.LLAMA_SERVER_PORT}: {e}"
-            )
-        return False
-
     def eject_model(self) -> bool:
-        """Eject (unload) the currently loaded model."""
-        if self._process is None and not self._port_in_use():
+        """Stop only the inference process started by this manager."""
+        if self._process is None:
             logger.info("[server] No model currently loaded")
             self._current_model = None
             self._current_model_name = None
@@ -688,8 +655,6 @@ class ServerManager:
                 self._process.wait(timeout=2)
             self._process = None
 
-        # Double check and clean up port just in case of rogue processes
-        self._kill_port_process()
         self._current_model = None
         self._current_model_name = None
         self._current_params = {}
