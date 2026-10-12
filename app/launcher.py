@@ -176,6 +176,18 @@ def main() -> None:
 
     import uvicorn
 
+    # Run before stopping an existing application; an accepted upgrade exits.
+    from rich.console import Console
+
+    from .updates import UpdateError, run_update
+
+    if os.environ.get("LLAMASTUDIO_NO_UPDATE_CHECK", "").lower() not in ("1", "true", "yes"):
+        try:
+            if run_update(Console(), automatic=True):
+                return
+        except UpdateError as exc:
+            Console().print(str(exc), markup=False)
+            raise SystemExit(1) from exc
     logger = setup_logging()
     config_loader.initialize_for_launch(Path.cwd())
     stopped_existing = stop_existing_app()

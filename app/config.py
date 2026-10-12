@@ -3,6 +3,7 @@ Application configuration.
 Edit these values to match your setup.
 """
 
+import os
 import shutil
 from pathlib import Path
 
@@ -11,6 +12,14 @@ from pydantic_settings import BaseSettings
 
 def resolve_llama_server_bin(force_cpu: bool = False) -> str:
     """Dynamically search for the best llama-server binary based on hardware and force_cpu setting."""
+    override = os.environ.get("LLAMASTUDIO_LLAMA_SERVER_BIN")
+    if override:
+        return str(Path(override).expanduser())
+    from .inference_runtime import managed_binary
+
+    managed = managed_binary()
+    if managed:
+        return managed
     home = Path.home()
     bin_root = home / "llama.cpp-bin"
 

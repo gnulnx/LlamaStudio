@@ -1887,6 +1887,14 @@
     </style>
 </head>
 <body>
+    <aside id="inferenceSetupCard" hidden style="position:fixed;bottom:24px;right:24px;z-index:1000;max-width:400px;padding:20px;border-radius:12px;background:var(--bg-secondary,#202027);border:1px solid var(--border-color,#555);box-shadow:0 4px 24px #0008">
+        <strong>Set up local inference</strong>
+        <p id="inferenceSetupMessage">A local model engine is needed to load models.</p>
+        <p>Download the engine for this computer. NVIDIA setup includes CUDA libraries (about 730 MiB).</p>
+        <button id="inferenceSetupButton" class="refresh-models-btn" onclick="setupLocalInference()">Set up local inference</button>
+        <button class="refresh-models-btn" onclick="document.getElementById('inferenceSetupCard').hidden=true">Later</button>
+    </aside>
+
 
 <div class="app-container">
     <!-- 1. LEFT BAR NAVIGATION -->
@@ -2704,8 +2712,38 @@
         }
     }
 
+
+    async function refreshInferenceSetup() {
+        const card = document.getElementById('inferenceSetupCard');
+        try {
+            const response = await fetch('/api/inference/status');
+            if (!response.ok) return;
+            const status = await response.json();
+            card.hidden = !!status.usable && !status.error;
+            document.getElementById('inferenceSetupMessage').textContent = status.error || status.problem || status.message || 'A local model engine is needed to load models.';
+            document.getElementById('inferenceSetupButton').disabled = !!status.running;
+            if (status.running) setTimeout(refreshInferenceSetup, 1500);
+        } catch (_) { /* The app may still be starting. */ }
+    }
+
+    async function setupLocalInference() {
+        const button = document.getElementById('inferenceSetupButton');
+        button.disabled = true;
+        try {
+            const response = await fetch('/api/inference/setup', {
+                method: 'POST', headers: {'X-LlamaStudio-Setup': '1'}
+            });
+            if (!response.ok) throw new Error((await response.json()).detail || 'Setup failed');
+            await refreshInferenceSetup();
+        } catch (error) {
+            document.getElementById('inferenceSetupMessage').textContent = error.message;
+            button.disabled = false;
+        }
+    }
+
     // ─── INITIALIZATION ───────────────────────────────────────
     document.addEventListener('DOMContentLoaded', async () => {
+        refreshInferenceSetup();
         await fetchGpuInfo();
         renderConversationsList();
         await fetchDiscoveredModels();

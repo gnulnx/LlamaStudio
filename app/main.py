@@ -103,6 +103,60 @@ async def server_status():
     return server.get_status()
 
 
+# Keep a strong reference to the task. Downloads never block the event loop.
+_inference_setup_task: asyncio.Task | None = None
+_inference_setup_state: dict = {"running": False, "message": "", "error": ""}
+
+
+@app.get("/api/inference/status")
+async def inference_status():
+    from .inference_setup import diagnose
+
+    if _inference_setup_state["running"]:
+        return dict(_inference_setup_state)
+    diagnosis = await asyncio.to_thread(diagnose)
+    if diagnosis.usable:
+        _inference_setup_state["error"] = ""
+    return {**_inference_setup_state, **diagnosis.to_dict()}
+
+
+@app.post("/api/inference/setup")
+async def inference_setup(request: Request):
+    """Explicit browser action only; reject cross-origin download requests."""
+    from urllib.parse import urlsplit
+
+    from .inference_setup import InferenceError, setup
+
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != request.headers.get("host"):
+        raise HTTPException(status_code=403, detail="Inference setup requires the same origin.")
+    if request.headers.get("x-llamastudio-setup") != "1":
+        raise HTTPException(status_code=403, detail="Explicit inference setup action required.")
+    global _inference_setup_task
+    if _inference_setup_task is not None and not _inference_setup_task.done():
+        raise HTTPException(status_code=409, detail="Inference setup is already running.")
+    _inference_setup_state.update(running=True, message="Preparing local inference", error="")
+
+    async def install():
+        try:
+
+            def progress(message):
+                _inference_setup_state["message"] = message
+
+            await asyncio.to_thread(setup, progress=progress)
+            _inference_setup_state["message"] = "Local inference is ready."
+        except InferenceError as exc:
+            _inference_setup_state["error"] = str(exc)
+        except Exception:
+            logger.exception("[inference] Setup failed")
+            _inference_setup_state["error"] = "Setup failed. See app logs or run lls doctor."
+        finally:
+            _inference_setup_state["running"] = False
+
+    _inference_setup_task = asyncio.create_task(install())
+    return {"running": True}
+
+
 @app.get("/api/gpu")
 async def get_gpu():
     """Retrieve primary GPU capacity and available live usage (in GiB)."""

@@ -35,8 +35,9 @@ pytestmark = pytest.mark.skipif(
     reason="Opt-in Linux/macOS package installation and terminal test",
 )
 ROOT = Path(__file__).resolve().parents[1]
-OLD_VERSION = "1.4.0"
-NEW_VERSION = "1.5.0"
+# Build the candidate and a simulated future release to test its first update.
+OLD_VERSION = "1.6.0"
+NEW_VERSION = "1.6.1"
 
 
 def run(command, *, cwd, env=None):
@@ -284,3 +285,49 @@ def test_real_pypi_upgrade_and_published_cli(package_index, installer):
     assert actual.strip() == expected
     status = run([lls, "status"], cwd=work, env=env)
     assert "OFFLINE" in status
+
+
+@pytest.mark.parametrize("installer", ["pip", "uv"])
+def test_real_llamastudio_entrypoint_offers_upgrade_before_starting_app(package_index, installer):
+    """Invoke the wheel's actual console script in a PTY, with real pip/uv install.
+
+    Only the package index and application serving are redirected. No browser,
+    port or active user process is touched by the launcher under test.
+    """
+    work, url, downloads = package_index
+    environment, _python, lls, env = prepare_environment(
+        package_index, installer, "desktop", OLD_VERSION
+    )
+    injection = work / f"desktop-hook-{installer}"
+    injection.mkdir(exist_ok=True)
+    (injection / "sitecustomize.py").write_text(
+        "from app import updates\n"
+        f"updates.PYPI_URL={url + '/pypi/llamastudio/json'!r}\n"
+        f"updates.INDEX_URL={url + '/simple'!r}\n"
+        "from app import launcher\n"
+        "launcher.stop_existing_app=lambda: False\n"
+        "launcher.port_in_use=lambda: False\n"
+        "launcher.write_pid_file=lambda: None\n"
+        "launcher.remove_pid_file=lambda: None\n"
+        "import uvicorn\n"
+        "uvicorn.run=lambda *args, **kwargs: print('APPLICATION_STARTED')\n"
+    )
+    env["PYTHONPATH"] = str(injection)
+    command = [str(environment / "bin" / "llamastudio")]
+    declined = terminal(command, cwd=work, env=env, answer="n")
+    assert "update available" in declined
+    assert "APPLICATION_STARTED" in declined
+    assert OLD_VERSION in run([lls, "--version"], cwd=work, env=env)
+    env["LLAMASTUDIO_CONFIG_DIR"] = str(work / f"desktop-accepted-{installer}")
+    accepted_config = Path(env["LLAMASTUDIO_CONFIG_DIR"])
+    if accepted_config.exists():
+        shutil.rmtree(accepted_config)
+    downloads.clear()
+    accepted = terminal(command, cwd=work, env=env, answer="y")
+    assert f"Installed LlamaStudio {NEW_VERSION}" in accepted
+    assert "APPLICATION_STARTED" not in accepted
+    assert any(f"llamastudio-{NEW_VERSION}" in path for path in downloads)
+    assert NEW_VERSION in run([lls, "--version"], cwd=work, env=env)
+    next_launch = terminal(command, cwd=work, env=env)
+    assert "Install LlamaStudio" not in next_launch
+    assert "APPLICATION_STARTED" in next_launch

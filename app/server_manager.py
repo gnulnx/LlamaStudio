@@ -250,8 +250,13 @@ class ServerManager:
 
         return cmd
 
-    def _build_env(self, params: dict | None = None, force_cpu: bool = False) -> dict[str, str]:
-        env = os.environ.copy()
+    def _build_env(
+        self, params: dict | None = None, force_cpu: bool = False, *, binary_path: str | None = None
+    ) -> dict[str, str]:
+        from .config import resolve_llama_server_bin
+        from .inference_runtime import runtime_environment
+
+        env = runtime_environment(binary_path or resolve_llama_server_bin(force_cpu=force_cpu))
         if force_cpu or (params and params.get("cpu_mode")):
             return env
 
@@ -276,6 +281,12 @@ class ServerManager:
 
     # A file llama.cpp cannot parse fails identically without a GPU, so these
     # make the CPU retry pointless rather than merely slow.
+    RUNTIME_LIBRARY_MARKERS = (
+        "error while loading shared libraries",
+        "library not loaded",
+        "dyld:",
+    )
+
     UNSUPPORTED_MODEL_MARKERS = (
         "invalid ggml type",
         "failed to read tensor info",
@@ -287,12 +298,15 @@ class ServerManager:
     @functools.lru_cache(maxsize=4)
     def _supports_load_mode(binary_path: str) -> bool:
         """Check if the llama-server binary supports modern --load-mode flag."""
+        from .inference_runtime import runtime_environment
+
         try:
             output = subprocess.check_output(
                 [binary_path, "--help"],
                 stderr=subprocess.STDOUT,
                 text=True,
                 timeout=5,
+                env=runtime_environment(binary_path),
             )
             return "--load-mode" in output
         except Exception:
@@ -337,7 +351,13 @@ class ServerManager:
                 continue
             # llama.cpp tags severity as a bare "E" column; keep a plain-text
             # fallback for builds that log without the marker.
-            if " E " not in line and "error" not in line.lower():
+            if (
+                " E " not in line
+                and "error" not in line.lower()
+                and not any(
+                    marker in line.lower() for marker in ServerManager.RUNTIME_LIBRARY_MARKERS
+                )
+            ):
                 continue
             message = line.split(" E ", 1)[-1].strip()
             if message and message not in found:
@@ -417,7 +437,7 @@ class ServerManager:
                 f.write(f"Model Path: {model}\n")
                 f.write(f"Command: {' '.join(cmd)}\n\n")
                 f.flush()
-                env = self._build_env(params, force_cpu=cpu_mode)
+                env = self._build_env(params, force_cpu=cpu_mode, binary_path=cmd[0])
                 self._process = subprocess.Popen(
                     cmd,
                     stdout=f,
@@ -433,6 +453,18 @@ class ServerManager:
 
             # Check for startup errors
             startup_errors = self._startup_errors(log_file)
+
+            if any(
+                marker in error.lower()
+                for error in startup_errors
+                for marker in self.RUNTIME_LIBRARY_MARKERS
+            ):
+                self._last_error = (
+                    "llama-server cannot load its runtime libraries. "
+                    "Run lls doctor and lls setup --repair, or use Set up local inference in the desktop."
+                )
+                self.eject_model()
+                return False
 
             # PROJECTOR FALLBACK LOGIC
             # If load failed specifically due to an incompatible/broken multimodal projector,
@@ -475,7 +507,9 @@ class ServerManager:
                     f.write("--- Retrying Without Multimodal Projector ---\n")
                     f.write(f"Command: {' '.join(cmd_no_mmproj)}\n\n")
                     f.flush()
-                    env = self._build_env(params_no_mmproj, force_cpu=cpu_mode)
+                    env = self._build_env(
+                        params_no_mmproj, force_cpu=cpu_mode, binary_path=cmd_no_mmproj[0]
+                    )
                     self._process = subprocess.Popen(
                         cmd_no_mmproj,
                         stdout=f,
@@ -527,7 +561,9 @@ class ServerManager:
                     f.write(f"Command: {' '.join(cmd_fallback)}\n\n")
                     f.flush()
 
-                    fallback_env = self._build_env(params, force_cpu=True)
+                    fallback_env = self._build_env(
+                        params, force_cpu=True, binary_path=cmd_fallback[0]
+                    )
                     self._process = subprocess.Popen(
                         cmd_fallback,
                         stdout=f,
@@ -592,7 +628,6 @@ class ServerManager:
             return False
 
     def _kill_port_process(self) -> bool:
-        import os
         import signal
 
         try:

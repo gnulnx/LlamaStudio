@@ -183,6 +183,69 @@ def check_for_updates() -> None:
 
 
 @cli.command()
+@click.option("--json", "as_json", is_flag=True, help="Print machine-readable diagnostics.")
+def doctor(as_json: bool) -> None:
+    """Check llama-server, shared libraries and available GPU devices."""
+    from app.inference_setup import diagnose
+
+    result = diagnose()
+    if as_json:
+        click.echo(json.dumps(result.to_dict()))
+    else:
+        console.print(f"llama-server: {result.binary}", markup=False)
+        console.print(result.version or "No runnable server", markup=False)
+        console.print(result.devices or "No devices reported", markup=False)
+        console.print("Ready" if result.usable else result.problem, markup=False)
+    if not result.usable:
+        raise click.exceptions.Exit(1)
+
+
+@cli.command()
+@click.option(
+    "--backend",
+    type=click.Choice(["auto", "cuda", "vulkan", "metal", "cpu"]),
+    default="auto",
+    show_default=True,
+)
+@click.option(
+    "--repair",
+    is_flag=True,
+    help="Install a fresh managed server without modifying external builds.",
+)
+@click.option("--yes", is_flag=True, help="Allow downloads without prompting.")
+def setup(backend: str, repair: bool, yes: bool) -> None:
+    """Set up local inference, including private CUDA runtime libraries."""
+    from app.inference_setup import InferenceError, diagnose, selected_assets
+    from app.inference_setup import setup as install
+
+    current = diagnose()
+    if current.usable and not repair:
+        console.print(f"Keeping working llama-server: {current.binary}", markup=False)
+        return
+    try:
+        chosen, _ = selected_assets(backend)
+        console.print(
+            f"Set up {chosen} inference in {settings.CONFIG_DIR}/inference. CUDA downloads are about 730 MiB.",
+            markup=False,
+        )
+        if not yes:
+            if not sys.stdin.isatty():
+                raise click.ClickException(
+                    "Use --yes to allow downloads in a noninteractive session."
+                )
+            click.confirm("Download and set up local inference?", abort=True)
+        result = install(
+            backend=backend,
+            repair=repair,
+            progress=lambda message: console.print(message, markup=False),
+        )
+        console.print(f"Inference is ready: {result.binary}", markup=False)
+        console.print(result.devices, markup=False)
+    except InferenceError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@cli.command()
 @click.option("--check", "check_only", is_flag=True, help="Check PyPI without installing.")
 @click.option("--yes", is_flag=True, help="Install the available upgrade without prompting.")
 def update(check_only: bool, yes: bool) -> None:

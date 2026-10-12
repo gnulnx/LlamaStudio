@@ -49,12 +49,46 @@ Browse the entire Hugging Face GGUF catalog. Features a **Smart VRAM Offload Est
 
 LLamaStudio is compatible with **Linux** and **macOS** out-of-the-box. Choose your OS and python virtual environment preference below.
 
+### Local inference setup and repair
+
+After `pip install llamastudio`, run `llamastudio` and choose **Set up local inference**
+when prompted in the desktop, or run:
+
+```bash
+lls doctor                         # Server, runtime libraries, available GPU devices
+lls setup                          # Guided download if the selected engine is unusable
+lls setup --yes                    # Allow downloads without a terminal prompt
+lls setup --repair                 # Replace a broken engine with a fresh private installation
+lls setup --backend cpu --repair   # Explicitly choose CPU inference
+lls doctor --json                  # Machine-readable result; exit 1 when unhealthy
+```
+
+`--backend` accepts `auto`, `cuda`, `vulkan`, `metal`, and `cpu`. Automatic selection
+uses CUDA on NVIDIA Linux x86-64, Vulkan on AMD/Intel Linux GPUs, Metal on Apple
+Silicon, and CPU otherwise. Linux ARM64 supports CPU/Vulkan; managed CUDA currently
+requires x86-64. Other platforms/backends need a manually installed llama.cpp.
+
+Setup downloads the pinned [llama.cpp b11565 release](https://github.com/ggml-org/llama.cpp/releases/tag/b11565),
+verifies SHA256 checksums, and checks server startup and device discovery before
+activating it. NVIDIA setup also downloads the matching CUDA 12.8 runtime bundle
+(about 730 MiB total). Bundled libraries are used only for that engine's processes;
+setup does not install system drivers or change your shell environment. Your GPU
+driver must already work, and Linux Vulkan needs a working Vulkan loader/driver.
+Model loading still depends on model compatibility and available RAM/VRAM.
+
+Managed installs live in `~/.config/llamastudio/inference` (or under
+`LLAMASTUDIO_CONFIG_DIR`). Setup preserves a working external engine by default.
+`--repair` creates a new managed install without modifying the external build;
+previous managed versions are retained, and a failed install leaves the selected
+version unchanged. A managed engine takes precedence over normal PATH/home discovery.
+An explicit `LLAMASTUDIO_LLAMA_SERVER_BIN` always wins; unset it to use managed setup.
+No engine downloads occur during pip installation or before you choose setup.
+
 ### 🐧 1. Linux Installation
 
 #### Prerequisites
 1. **Python 3.10+** (Recommended: Python 3.13)
-2. **llama.cpp** built from source (or pre-compiled binary):
-   - By default, the app dynamically looks for the `llama-server` binary globally on your system PATH or locally inside your home directory at `~/llama.cpp/build/bin/llama-server`.
+2. A working GPU driver for GPU inference. LlamaStudio can install its own `llama-server` with `lls setup`; a system CUDA toolkit or manual llama.cpp build is not required.
 
 #### Environment Setup
 
@@ -113,7 +147,7 @@ gtk-update-icon-cache -f -t ~/.local/share/icons
 
 #### Prerequisites
 1. **Python 3.10+**
-2. **llama.cpp** installed globally via Homebrew (highly recommended for macOS):
+2. Use `lls setup` for a managed engine (Metal on Apple Silicon, CPU on Intel), or install **llama.cpp** via Homebrew:
    ```bash
    brew install llama.cpp
    ```
@@ -196,6 +230,8 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `tui` | `lls tui [--view discover\|models\|chat\|logs]` | Interactive terminal interface with mouse, keyboard, and adaptive layouts. Starts the backend without opening a browser when needed. |
 | `reload` | `lls reload` | Gracefully restarts the desktop FastAPI application backend. |
 | `status` | `lls status` | Visual dashboard of FastAPI backend status, loaded model parameters, and GPU memory (VRAM). |
+| `doctor` | `lls doctor [--json]` | Diagnose llama-server, runtime libraries, and GPU devices. |
+| `setup` | `lls setup [--backend auto\|cuda\|vulkan\|metal\|cpu] [--repair] [--yes]` | Install and validate a private inference engine. |
 | `update` | `lls update [--check] [--yes]` | Check PyPI for a stable release and upgrade the installation running this command. |
 | `ls` | `lls ls` | Prints an elegant table of all GGUF models scanned across local directories. |
 | `load` | `lls load [MODEL]` | Boots the server with a GGUF model. If `MODEL` is omitted, prompts you with an interactive menu. |
@@ -207,7 +243,7 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `speech transcribe` | `lls speech transcribe AUDIO` | Transcribes a workspace audio file locally, with optional language and English translation controls. |
 | `speech record` | `lls speech record [--device default]` | Starts terminal microphone capture immediately; press Enter to stop and print the transcript. |
 
-Interactive `lls start`, `lls status`, and `lls tui` check PyPI for updates at most
+Interactive `llamastudio`, `lls start`, `lls status`, and `lls tui` check PyPI for updates at most
 once an hour. If a newer stable release supports your Python and platform, you
 can choose to install it. Declining defers that version's prompt for 24 hours;
 `lls update` checks immediately. Offline checks are quiet, and scripts,
