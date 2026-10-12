@@ -270,6 +270,9 @@ installs require a virtualenv or pipx instead of overriding system protections.
 The installer refreshes package listings to avoid stale pip/uv caches just after publication.
 After a successful upgrade, rerun your command to load the new code. An existing
 backend keeps running until you restart it, so an upgrade does not eject models.
+Use `lls reload` to activate the upgraded backend when you are ready; restarting
+unloads any active model. Reload recognizes application processes on both Linux
+and macOS and confirms the new process is serving before reporting success.
 Users on 1.4.0 or earlier need one manual upgrade to 1.5.0 to get this feature;
 older releases do not contain the update checker.
 
