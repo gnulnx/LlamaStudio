@@ -85,6 +85,10 @@ jobs:
         env:
           LLAMASTUDIO_INFERENCE_E2E: "1"
         run: python -m pytest tests/test_inference_e2e.py -v
+      - name: Restart a running backend on the native platform
+        env:
+          LLAMASTUDIO_BACKEND_E2E: "1"
+        run: python -m pytest tests/test_backend_reload.py -v
 
   jest:
     runs-on: ubuntu-latest

@@ -79,11 +79,21 @@ def is_server_online() -> bool:
         return sock.connect_ex((connect_host, API_PORT)) == 0
 
 
-def wait_for_server_ready(timeout: int = 15) -> bool:
+def wait_for_server_ready(timeout: int = 15, *, process: subprocess.Popen | None = None) -> bool:
     """Block and poll the API server health endpoint until it responds successfully."""
     start = time.time()
     url = f"{API_BASE_URL}/api/server/status"
     while time.time() - start < timeout:
+        if process is not None:
+            if process.poll() is not None:
+                return False
+            try:
+                current_pid = int((config_loader.config_dir / "app.pid").read_text().strip())
+            except (OSError, ValueError):
+                current_pid = None
+            if current_pid != process.pid:
+                time.sleep(0.1)
+                continue
         if is_server_online():
             try:
                 resp = httpx.get(url, timeout=1.0)
@@ -101,7 +111,7 @@ def start_server_background(*, open_browser: bool | None = None) -> bool:
     launch_env = os.environ.copy()
     if open_browser is not None:
         launch_env["LLAMASTUDIO_OPEN_BROWSER"] = "1" if open_browser else "0"
-    subprocess.Popen(
+    process = subprocess.Popen(
         server_launch_command(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -116,7 +126,7 @@ def start_server_background(*, open_browser: bool | None = None) -> bool:
         console=console,
     ) as progress:
         task = progress.add_task("Waiting for API server to bind...", total=None)
-        if wait_for_server_ready():
+        if wait_for_server_ready(process=process):
             progress.update(task, description="[green]API server is online and ready!")
             return True
         else:
@@ -1374,6 +1384,7 @@ def reload():
         )
     else:
         console.print("[bold red]Failed to reload LlamaStudio server.[/bold red]")
+        raise click.exceptions.Exit(1)
 
 
 if __name__ == "__main__":

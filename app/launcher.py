@@ -52,7 +52,15 @@ def pid_cmdline(pid: int) -> str:
     try:
         return Path(f"/proc/{pid}/cmdline").read_text().replace("\0", " ")
     except Exception:
-        return ""
+        try:
+            return subprocess.check_output(
+                ["ps", "-ww", "-p", str(pid), "-o", "command="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
 
 
 def is_llamastudio_pid(pid: int) -> bool:
@@ -62,7 +70,7 @@ def is_llamastudio_pid(pid: int) -> bool:
     return (
         module_marker in cmdline
         or script_marker in cmdline
-        or ("llamastudio" in cmdline.lower() and "python" in cmdline)
+        or ("python" in cmdline and any(Path(arg).name == "llamastudio" for arg in cmdline.split()))
     )
 
 
