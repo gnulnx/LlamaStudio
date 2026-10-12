@@ -81,7 +81,13 @@ class Backend:
         if not self.online:
             raise httpx.ConnectError("offline", request=request)
         data = {}
-        if path == "/api/server/status":
+        if path == "/api/settings/sandbox":
+            data = {
+                "root": "/server/workspace",
+                "disable_sandbox": False,
+                "command_policy": "allow",
+            }
+        elif path == "/api/server/status":
             data = self.status
         elif path == "/api/gpu":
             if not self.gpu_available:
@@ -296,7 +302,13 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             for method, path, _, _ in self.backend.calls[len(calls_before) :]:
                 self.assertEqual(method, "GET")
                 self.assertIn(
-                    path, ("/api/server/status", "/api/gpu", "/api/models/download/active")
+                    path,
+                    (
+                        "/api/server/status",
+                        "/api/gpu",
+                        "/api/models/download/active",
+                        "/api/settings/sandbox",
+                    ),
                 )
 
     async def test_invalid_palette_reload_keeps_last_good_colors_and_open_dialog(self):
@@ -552,6 +564,25 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(chat.conversation_id.startswith("new-"))
             self.assertEqual(len(chat.query(MessageCard)), 0)
 
+    async def test_session_sandbox_directory_is_displayed_and_sent_to_existing_backend(self):
+        self.app.workspace_root = "/launch/directory"
+        async with self.app.run_test(size=(180, 48)) as pilot:
+            await self.settle(pilot)
+            self.assertIn(
+                "/launch/directory", str(self.app.query_one("#sandbox-directory").render())
+            )
+            await pilot.press("f4")
+            await self.settle(pilot)
+            self.app.query_one("#chat-input", Composer).load_text("List this directory")
+            self.app.query_one("#chat-input").focus()
+            await pilot.press("ctrl+s")
+            await self.settle(pilot)
+            sent = next(
+                body for method, path, body, _ in self.backend.calls if path == "/api/chat/send"
+            )
+            self.assertEqual(sent["workspace_root"], "/launch/directory")
+            self.assertFalse(any(method == "PUT" for method, *_ in self.backend.calls))
+
     async def test_chat_error_restores_editor(self):
         async with self.app.run_test(size=(80, 24)) as pilot:
             await self.settle(pilot)
@@ -637,7 +668,7 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             summary = str(self.app.query_one("#header-summary").render())
             for label in ("Tiny Q4_K_M", "Test GPU", "50%", "Running / CPU"):
                 self.assertIn(label, summary)
-            self.assertEqual(self.app.query_one("#masthead").region.height, 3)
+            self.assertEqual(self.app.query_one("#masthead").region.height, 4)
             await pilot.resize_terminal(190, 52)
             await pilot.pause()
             self.assertTrue(self.app.query_one("#header-full").display)

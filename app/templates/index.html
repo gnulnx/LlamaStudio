@@ -1890,7 +1890,7 @@
     <aside id="inferenceSetupCard" hidden style="position:fixed;bottom:24px;right:24px;z-index:1000;max-width:400px;padding:20px;border-radius:12px;background:var(--bg-secondary,#202027);border:1px solid var(--border-color,#555);box-shadow:0 4px 24px #0008">
         <strong>Set up local inference</strong>
         <p id="inferenceSetupMessage">A local model engine is needed to load models.</p>
-        <p>Download the engine for this computer. NVIDIA setup includes CUDA libraries (about 730 MiB).</p>
+        <p>Download a private engine for the computer running LlamaStudio.</p>
         <button id="inferenceSetupButton" class="refresh-models-btn" onclick="setupLocalInference()">Set up local inference</button>
         <button class="refresh-models-btn" onclick="document.getElementById('inferenceSetupCard').hidden=true">Later</button>
     </aside>
@@ -1919,11 +1919,31 @@
                 <i class="fa-solid fa-terminal"></i>
                 <span>Logs</span>
             </button>
+            <button class="nav-btn" id="btn-settings" onclick="switchView('settings')">
+                <i class="fa-solid fa-gear"></i><span>Settings</span>
+            </button>
         </div>
     </div>
 
     <!-- 2. MAIN PANES -->
-    <div class="main-content">
+    <div class="main-content" style="flex-direction:column;">
+        <button id="sandboxSummary" class="sandbox-summary" onclick="switchView('settings')" title="Application sandbox settings">Sandbox: connecting…</button>
+        <div class="view-panel sandbox-settings" id="view-settings">
+            <div class="sandbox-form">
+                <h2>Settings</h2>
+                <p>Settings saved on the computer running LlamaStudio. Chat generation options remain in Chat Settings.</p>
+                <h3>Sandbox</h3>
+                <label for="sandboxRoot">Sandbox directory</label>
+                <input id="sandboxRoot" type="text" autocomplete="off" spellcheck="false" placeholder="Absolute directory on the backend computer">
+                <p>Default directory for web chat and agent tools. TUI sessions can select their own directory.</p>
+                <label class="sandbox-toggle"><input id="sandboxRestricted" type="checkbox"> Restrict file tools to this directory</label>
+                <p>When disabled, file tools may access paths outside this directory.</p>
+                <label class="sandbox-toggle"><input id="sandboxCommands" type="checkbox"> Allow shell commands</label>
+                <p>Enabled commands run with your account's permissions. This directory sets their starting location; file restrictions do not isolate shell commands.</p>
+                <button id="sandboxSave" class="refresh-models-btn" onclick="saveSandboxSettings()">Save settings</button>
+                <p id="sandboxSettingsMessage" role="status" aria-live="polite">Changes apply to the next request. A response in progress keeps its original directory and permissions.</p>
+            </div>
+        </div>
         <!-- ─── CHAT VIEW ─── -->
         <div class="view-panel active" id="view-chat">
             <!-- Sidebar (Chat lists) -->
@@ -2750,7 +2770,7 @@
         await fetchSavedModelSettings();
 
         const requestedView = new URLSearchParams(window.location.search).get('view');
-        const validLaunchViews = ['chat', 'discover', 'models', 'logs'];
+        const validLaunchViews = ['chat', 'discover', 'models', 'logs', 'settings'];
         const launchView = validLaunchViews.includes(requestedView)
             ? requestedView
             : initialLaunchView;
@@ -2843,6 +2863,8 @@
                 searchHfModels();
             }
         }
+
+        if (viewName === 'settings') loadSandboxSettings(true);
 
         // Real-time logs polling
         if (viewName === 'logs') {
@@ -4459,6 +4481,7 @@
 
                     try {
                         const data = JSON.parse(dataStr);
+                        if (data.sandbox) setActiveSandbox(data.sandbox);
                         if (data.error) {
                             streamBlocks.push({ type: 'error', error: data.error });
                             renderStreamBlocks(assistDiv, streamBlocks);
@@ -4586,6 +4609,7 @@
             }
         } finally {
             isCurrentlyStreaming = false;
+            setActiveSandbox(null);
             activeAbortController = null;
             document.getElementById('sendMsgBtn').style.display = 'flex';
             document.getElementById('stopMsgBtn').style.display = 'none';
@@ -5179,5 +5203,7 @@
 }
 </style>
 
+<link rel="stylesheet" href="/static/sandbox.css">
+<script src="/static/sandbox.js"></script>
 </body>
 </html>

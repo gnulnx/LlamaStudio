@@ -20,12 +20,12 @@ Screen {
 #gpu-stat { width: 30; }
 #memory-stat { width: 31; height: 3; }
 #server-stat { width: 23; }
-#model-stat { width: 1fr; border: none; }
+#model-stat { width: 1fr; height: 3; border: none; }
 #header-meta { width: 11; height: 5; padding-top: 2; margin-left: 2; color: $studio-muted; text-align: right; }
 #header-meta Static { height: 1; }
 #header-version { color: $studio-accent; }
-#header-summary { display: none; height: 2; text-wrap: nowrap; }
-#masthead.condensed { height: 3; padding: 0 1 1 1; }
+#header-summary { display: none; height: 3; text-wrap: nowrap; }
+#masthead.condensed { height: 4; padding: 0 1 1 1; }
 #masthead.condensed #header-full { display: none; }
 #masthead.condensed #header-summary { display: block; }
 #workspace { height: 1fr; padding: 0 1; }

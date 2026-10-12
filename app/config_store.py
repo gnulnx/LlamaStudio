@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
+import tempfile
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,7 +47,10 @@ class ConfigLoader:
         if not self.config_file.exists():
             self._write_json(self.config_file, self._default_config(workspace_root))
         else:
-            self.save_app_config(self._merge_app_config(self._read_json(self.config_file, {})))
+            saved = self._read_json(self.config_file, {})
+            merged = self._merge_app_config(saved)
+            if saved != merged:
+                self.save_app_config(merged)
 
         if not self.model_profiles_file.exists():
             profiles = self._migrate_legacy_model_settings()
@@ -309,11 +312,16 @@ class ConfigLoader:
 
     def _write_json(self, path: Path, data: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
-        with open(tmp_path, "w") as f:
-            json.dump(data, f, indent=2)
-            f.write("\n")
-        shutil.move(str(tmp_path), str(path))
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(data, stream, indent=2)
+                stream.write("\n")
+            temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def _resolve_path_string(self, path: str) -> str:
         try:
