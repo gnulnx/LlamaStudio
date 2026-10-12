@@ -247,10 +247,12 @@ LlamaStudio features a CLI built using `rich-click` for visual dashboards and op
 | `speech transcribe` | `lls speech transcribe AUDIO` | Transcribes a workspace audio file locally, with optional language and English translation controls. |
 | `speech record` | `lls speech record [--device default]` | Starts terminal microphone capture immediately; press Enter to stop and print the transcript. |
 
-Interactive `llamastudio`, `lls start`, `lls status`, and `lls tui` check PyPI for updates at most
-once an hour. If a newer stable release supports your Python and platform, you
+Interactive `llamastudio`, `lls start`, `lls status`, and `lls tui` check PyPI for updates on every
+interactive launch, with a two-second request timeout. If a newer stable release supports your Python and platform, you
 can choose to install it. Declining defers that version's prompt for 24 hours;
-`lls update` checks immediately. Offline checks are quiet, and scripts,
+`lls update` also checks immediately. PyPI metadata can briefly lag a new publication;
+“No newer release listed at this check” describes the current metadata, rather
+than guaranteeing that a just-published release has propagated. Offline checks are quiet, and scripts,
 screenshots, and CI do not trigger automatic checks or prompts.
 
 Use `lls --no-update-check status` or `LLAMASTUDIO_NO_UPDATE_CHECK=1` to disable
@@ -315,6 +317,9 @@ lls tui
 lls tui --view chat
 lls tui --no-start     # Connect only; fail if the backend is offline
 ```
+
+Backend launches use the same package as the CLI, even when your current directory
+contains an older LlamaStudio checkout. The current directory remains your workspace.
 
 The TUI shares the web app's backend, model profiles, downloads, and saved
 conversations. Closing it leaves the backend and loaded model running. Discover

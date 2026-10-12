@@ -54,8 +54,13 @@ API_BASE_URL = f"http://{API_CONNECT_HOST}:{API_PORT}"
 
 
 def server_launch_command() -> list[str]:
-    """Return the importable server launcher command for source and wheel installs."""
-    return [sys.executable, "-m", "app.launcher"]
+    """Launch the same package as this CLI while preserving the workspace cwd."""
+    package_root = str(Path(__file__).resolve().parent.parent)
+    bootstrap = (
+        f"import sys; sys.path.insert(0, {package_root!r}); "
+        "import runpy; runpy.run_module('app.launcher', run_name='__main__')"
+    )
+    return [sys.executable, "-c", bootstrap]
 
 
 def browser_url(view: str | None = None) -> str:

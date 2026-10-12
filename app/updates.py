@@ -34,8 +34,6 @@ from app.tools import check_path_safe, reset_current_workspace_root, set_current
 PACKAGE = "llamastudio"
 PYPI_URL = "https://pypi.org/pypi/llamastudio/json"
 INDEX_URL = "https://pypi.org/simple"
-CHECK_INTERVAL = 60 * 60
-RETRY_INTERVAL = 5 * 60
 PROMPT_INTERVAL = 24 * 60 * 60
 
 
@@ -154,22 +152,9 @@ def latest_release() -> Version | None:
         ) from exc
 
 
-def check_release(*, force: bool = False) -> tuple[Version | None, dict]:
+def check_release() -> tuple[Version | None, dict]:
+    """Fetch current metadata; persisted state only defers repeated prompts."""
     state = _read_cache()
-    interval = RETRY_INTERVAL if state.get("failed") else CHECK_INTERVAL
-    if (
-        not force
-        and state.get("python") == platform.python_version()
-        and state.get("platform") == f"{sys.platform}:{platform.machine()}"
-        and _recent(state.get("checked_at"), interval)
-    ):
-        try:
-            candidate = Version(state["latest"]) if state.get("latest") else None
-            if candidate and (candidate.is_prerelease or candidate.is_devrelease):
-                raise ValueError("Cached prerelease")
-            return candidate, state
-        except (ValueError, TypeError):
-            pass
     state.update(
         checked_at=time.time(),
         python=platform.python_version(),
@@ -283,7 +268,7 @@ def run_update(
         return False
     try:
         installed = installation()
-        candidate, state = check_release(force=not automatic)
+        candidate, state = check_release()
     except UpdateError:
         if automatic:
             logger.debug("Automatic update check unavailable", exc_info=True)
@@ -291,7 +276,9 @@ def run_update(
         raise
     if candidate is None or candidate <= installed.version:
         if not automatic:
-            console.print(f"LlamaStudio {installed.version}: no newer compatible release on PyPI.")
+            console.print(
+                f"LlamaStudio {installed.version}: no newer compatible release listed by PyPI at this check."
+            )
         return False
     if (
         automatic
