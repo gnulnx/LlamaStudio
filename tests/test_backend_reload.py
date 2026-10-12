@@ -71,12 +71,11 @@ def test_reload_replaces_live_backend_before_reporting_success(tmp_path, owned):
     else:
         script = (
             "import os; from pathlib import Path; "
-            "from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler\n"
-            "class Handler(BaseHTTPRequestHandler):\n"
-            " def do_GET(self):\n"
-            "  self.send_response(200); self.end_headers(); self.wfile.write(b'{}')\n"
+            "from fastapi import FastAPI; import uvicorn\n"
+            "application=FastAPI()\n"
+            "application.get('/api/server/status')(lambda: {})\n"
             f"p=Path({str(pid_file)!r}); p.parent.mkdir(parents=True); p.write_text(str(os.getpid()))\n"
-            f"ThreadingHTTPServer(('127.0.0.1',{port}),Handler).serve_forever()\n"
+            f"uvicorn.run(application,host='127.0.0.1',port={port})\n"
         )
         command = [sys.executable, "-c", script]
     startup_log = tmp_path / "initial-server.log"
