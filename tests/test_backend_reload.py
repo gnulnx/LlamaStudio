@@ -71,35 +71,35 @@ def test_reload_replaces_live_backend_before_reporting_success(tmp_path, owned):
     else:
         script = (
             "import os; from pathlib import Path; "
-            "from http.server import HTTPServer, BaseHTTPRequestHandler\n"
+            "from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler\n"
             "class Handler(BaseHTTPRequestHandler):\n"
             " def do_GET(self):\n"
             "  self.send_response(200); self.end_headers(); self.wfile.write(b'{}')\n"
             f"p=Path({str(pid_file)!r}); p.parent.mkdir(parents=True); p.write_text(str(os.getpid()))\n"
-            f"HTTPServer(('127.0.0.1',{port}),Handler).serve_forever()\n"
+            f"ThreadingHTTPServer(('127.0.0.1',{port}),Handler).serve_forever()\n"
         )
         command = [sys.executable, "-c", script]
-    first = subprocess.Popen(
-        command,
-        cwd=tmp_path,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    startup_log = tmp_path / "initial-server.log"
+    with startup_log.open("w") as output:
+        first = subprocess.Popen(command, cwd=tmp_path, env=env, stdout=output, stderr=output)
     new_pid = None
     try:
         deadline = time.monotonic() + 15
+        last_result = "No response"
         while time.monotonic() < deadline:
-            assert first.poll() is None
+            assert first.poll() is None, startup_log.read_text()
             try:
                 response = httpx.get(f"http://127.0.0.1:{port}/api/server/status", timeout=0.5)
+                last_result = f"HTTP {response.status_code}, PID file exists: {pid_file.exists()}"
                 if response.status_code == 200 and pid_file.exists():
                     break
-            except httpx.HTTPError:
-                pass
+            except httpx.HTTPError as exc:
+                last_result = repr(exc)
             time.sleep(0.1)
         else:
-            pytest.fail("Initial backend failed to start")
+            pytest.fail(
+                f"Initial backend failed to start: {last_result}\n{startup_log.read_text()}"
+            )
         assert int(pid_file.read_text()) == first.pid
         package_root = str(Path(cli.__file__).resolve().parent.parent)
         code = f"import sys; sys.path.insert(0,{package_root!r}); from app.cli import cli; cli(['--no-update-check','reload'])"
