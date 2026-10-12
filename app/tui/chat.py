@@ -263,9 +263,16 @@ class ChatView(StudioView):
             status.update("Generating...")
             transcript.anchor()
             had_metrics = False
-            async for event in self.client.chat(
-                message=message, enable_thinking=self.query_one("#chat-thinking", Checkbox).value
-            ):
+            payload = {
+                "message": message,
+                "enable_thinking": self.query_one("#chat-thinking", Checkbox).value,
+            }
+            if self.app.workspace_root:
+                payload["workspace_root"] = self.app.workspace_root
+            async for event in self.client.chat(**payload):
+                if event.get("sandbox"):
+                    self.app.active_sandbox = event["sandbox"]
+                    self.app.update_header()
                 if event.get("error"):
                     raise APIError(error_message(event["error"]))
                 for kind in ("reasoning", "content"):
@@ -301,6 +308,8 @@ class ChatView(StudioView):
             self.query_one("#chat-input", Composer).load_text(message)
         finally:
             self.busy = self.streaming = False
+            self.app.active_sandbox = None
+            self.app.update_header()
             self.update_controls()
             try:
                 await self.refresh_conversations()

@@ -357,3 +357,80 @@ def test_environment_uses_launched_release_when_manifest_changes(isolated):
     variable = "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
     assert str(previous.parent) in env[variable]
     assert str(selected.parent) not in env[variable]
+
+
+@pytest.mark.parametrize(
+    "device", ["MTL0: Apple M4 Pro (16384 MiB, 8000 MiB free)", "Metal: Apple M1"]
+)
+def test_metal_device_names_are_accepted(isolated, device):
+    binary = fake_binary(isolated / "metal", devices=f"Available devices:\n  {device}")
+    assert engine.diagnose(str(binary), backend="metal").usable
+
+
+def test_metal_startup_log_is_not_a_device(isolated):
+    binary = fake_binary(
+        isolated / "metal",
+        devices="ggml_metal_init: found Metal support\nAvailable devices:\n  (none)",
+    )
+    assert not engine.diagnose(str(binary), backend="metal").usable
+
+
+@pytest.mark.parametrize("failure", [504, "interrupted"])
+def test_download_retries_gateway_and_interrupted_stream_from_scratch(
+    isolated, monkeypatch, failure
+):
+    contents = b"verified archive"
+    monkeypatch.setitem(
+        engine.ASSETS, "test", (len(contents), hashlib.sha256(contents).hexdigest())
+    )
+    monkeypatch.setattr(engine.time, "sleep", lambda _: None)
+    urls = []
+
+    class Interrupted(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"partial"
+            raise httpx.ReadError("Connection lost")
+
+    def stream(method, url, **kwargs):
+        urls.append(url)
+
+        def respond(request):
+            if len(urls) == 1:
+                if failure == 504:
+                    return httpx.Response(504)
+                return httpx.Response(200, stream=Interrupted())
+            return httpx.Response(200, content=contents)
+
+        return httpx.Client(transport=httpx.MockTransport(respond)).stream(method, url)
+
+    monkeypatch.setattr(engine.httpx, "stream", stream)
+    messages = []
+    with engine._safe_scope(isolated):
+        engine._download("test", isolated / "bundle", messages.append)
+    assert (isolated / "bundle").read_bytes() == contents
+    assert len(urls) == 2
+    assert urls[0] != urls[1]
+    assert any("retrying" in message for message in messages)
+
+
+@pytest.mark.parametrize("status,attempts", [(504, 3), (404, 1)])
+def test_download_retry_limit_and_permanent_failure(isolated, monkeypatch, status, attempts):
+    monkeypatch.setitem(engine.ASSETS, "test", (1, "0" * 64))
+    monkeypatch.setattr(engine.time, "sleep", lambda _: None)
+    calls = []
+
+    def stream(method, url, **kwargs):
+        calls.append(url)
+        return httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(status))).stream(
+            method, url
+        )
+
+    monkeypatch.setattr(engine.httpx, "stream", stream)
+    error = engine.InferenceError if status == 504 else httpx.HTTPStatusError
+    with engine._safe_scope(isolated), pytest.raises(error) as raised:
+        engine._download("test", isolated / "bundle", lambda _: None)
+    assert len(calls) == attempts
+    if status == 504:
+        assert "after 3 attempts" in str(raised.value)
+        assert "preserved" in str(raised.value)
+    assert not (isolated / "bundle").exists()

@@ -46,6 +46,7 @@ class StudioApp(App[None]):
         base_url: str,
         *,
         initial_view: str = "discover",
+        workspace_root: str | None = None,
         client: StudioClient | None = None,
         palette_path: str | None = None,
         theme_name: str = "default",
@@ -66,6 +67,9 @@ class StudioApp(App[None]):
         self._theme_error = ""
         self.client = client or StudioClient(base_url)
         self.base_url = base_url
+        self.workspace_root = workspace_root
+        self.sandbox: dict = {}
+        self.active_sandbox: dict | None = None
         self.current_view = initial_view
         self.server_status: dict = {}
         self.gpu: dict = {}
@@ -216,6 +220,10 @@ class StudioApp(App[None]):
                 self.gpu = {}
                 return
             try:
+                self.sandbox = await self.client.get("/api/settings/sandbox")
+            except APIError:
+                self.sandbox = {}
+            try:
                 self.gpu = await self.client.get("/api/gpu")
             except APIError:
                 self.gpu = {}
@@ -286,8 +294,11 @@ class StudioApp(App[None]):
         # A cancelled polling worker can finish while child widgets unmount.
         if not self.is_running:
             return
+        sandbox = self.active_sandbox or {**self.sandbox}
+        if self.workspace_root and not self.active_sandbox:
+            sandbox["root"] = self.workspace_root
         self.query_one(StudioHeader).update_status(
-            self.server_status, self.gpu, connected=self.connected
+            self.server_status, self.gpu, connected=self.connected, sandbox=sandbox
         )
 
     @on(Button.Pressed, ".nav-button")

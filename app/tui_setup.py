@@ -71,7 +71,7 @@ def prepare_inference(
                 markup=False,
             )
             console.print(
-                "Setup downloads a private engine. NVIDIA setup includes CUDA libraries (about 730 MiB).",
+                "Setup downloads a private engine for the computer running the backend.",
                 markup=False,
             )
             if not click.confirm("Set up local inference now?", default=True):

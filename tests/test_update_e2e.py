@@ -36,8 +36,8 @@ pytestmark = pytest.mark.skipif(
 )
 ROOT = Path(__file__).resolve().parents[1]
 # Build the candidate and a simulated future release to test its first update.
-OLD_VERSION = "1.6.2"
-NEW_VERSION = "1.6.3"
+OLD_VERSION = "1.7.0"
+NEW_VERSION = "1.7.1"
 
 
 def run(command, *, cwd, env=None):

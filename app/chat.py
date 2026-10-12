@@ -21,6 +21,7 @@ import httpx
 from .config import settings
 from .config_store import config_loader
 from .logger import logger
+from .sandbox import SandboxPolicy, current_policy
 
 MAX_IMAGES_PER_MESSAGE = 4
 MAX_AUDIO_FILES_PER_MESSAGE = 1
@@ -509,6 +510,7 @@ class ChatManager:
         vision_recovery: dict | None = None,
         enable_thinking: bool | None = None,
         workspace_root: str | Path | None = None,
+        sandbox_policy: SandboxPolicy | None = None,
     ) -> Generator[str, None, None]:
         """Send a message to llama-server and stream the response, automatically executing tools if requested."""
         from .tools import (
@@ -535,6 +537,8 @@ class ChatManager:
             )
             self._save_to_disk()
 
+        sandbox_policy = sandbox_policy or SandboxPolicy.capture(workspace_root)
+        workspace_root = sandbox_policy.root
         chat_defaults = config_loader.get_chat_defaults()
         max_iterations = max(1, int(chat_defaults["max_tool_iterations"]))
         iteration = 0
@@ -550,8 +554,9 @@ class ChatManager:
                 ws_path = str(Path(workspace_root).resolve())
                 workspace_instruction = (
                     f"Current workspace directory: {ws_path}. "
-                    "Tool operations (reading/writing files, listing directories, executing commands) "
-                    "are scoped to this directory."
+                    f"File tools are {'unrestricted' if sandbox_policy.disable_sandbox else 'restricted to this directory'}. "
+                    f"Shell commands are {'allowed' if sandbox_policy.command_policy == 'allow' else 'blocked'}. "
+                    "Allowed shell commands start here and run with the user account permissions."
                 )
                 if messages and messages[0]["role"] == "system":
                     messages[0]["content"] = f"{messages[0]['content']}\n\n{workspace_instruction}"
@@ -955,9 +960,11 @@ class ChatManager:
                         # Execute the tool
                         logger.info(f"Executing tool '{name}' with arguments: {args}")
                         ws_token = set_current_workspace_root(workspace_root)
+                        policy_token = current_policy.set(sandbox_policy)
                         try:
                             tool_result = execute_tool(name, args)
                         finally:
+                            current_policy.reset(policy_token)
                             reset_current_workspace_root(ws_token)
                         result_images = []
                         result_audios = []

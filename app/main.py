@@ -18,10 +18,13 @@ from .chat import chat, validate_audio_attachments, validate_image_attachments
 from .config import settings
 from .config_store import config_loader
 from .logger import logger
+from .sandbox import SandboxPolicy
+from .sandbox_settings import router as sandbox_router
 from .server_manager import server
 from .speech_manager import SpeechError, speech
 
 app = FastAPI(title="LLamaStudio")
+app.include_router(sandbox_router)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 static_dir = Path(__file__).parent / "static"
 
@@ -63,7 +66,7 @@ async def index(request: Request):
 
     models_available = bool(get_models())
     query_view = request.query_params.get("view")
-    valid_views = {"chat", "discover", "models", "logs"}
+    valid_views = {"chat", "discover", "models", "logs", "settings"}
     if query_view in valid_views:
         launch_view = query_view
     else:
@@ -646,6 +649,8 @@ async def send_message(request: Request):
             raise HTTPException(400, f"Workspace directory not found: {workspace_root}")
         workspace_root = str(workspace_path)
 
+    sandbox_policy = SandboxPolicy.capture(workspace_root)
+
     top_k = body.get("top_k")
     min_p = body.get("min_p")
     repeat_penalty = body.get("repeat_penalty")
@@ -673,7 +678,7 @@ async def send_message(request: Request):
         vision_recovery = await resolve_model_projector(server._current_model)
 
     def event_generator():
-        yield "data: {'type': 'start'}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'sandbox': sandbox_policy.to_dict()})}\n\n"
         yield from chat.stream_chat(
             user_msg,
             temperature=temperature,
@@ -689,6 +694,7 @@ async def send_message(request: Request):
             vision_recovery=vision_recovery,
             enable_thinking=enable_thinking,
             workspace_root=workspace_root,
+            sandbox_policy=sandbox_policy,
         )
         yield "data: {'type': 'end'}\n\n"
 

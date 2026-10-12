@@ -37,12 +37,30 @@ class StudioHeader(Vertical):
                 with Vertical(id="model-stat", classes="header-stat"):
                     yield Static("ACTIVE MODEL", classes="stat-label")
                     yield Static("Connecting...", id="active-model")
+                    yield Static("Sandbox: connecting...", id="sandbox-directory")
             with Vertical(id="header-meta"):
                 yield Static(f"v{version('llamastudio')}", id="header-version")
                 yield Static("F1 Help", id="header-help")
         yield Static("LlamaStudio / Connecting...", id="header-summary")
 
-    def update_status(self, status: dict, gpu: dict, *, connected: bool = True) -> None:
+    def update_status(
+        self, status: dict, gpu: dict, *, connected: bool = True, sandbox: dict | None = None
+    ) -> None:
+        sandbox = sandbox or {}
+        directory = str(sandbox.get("root") or "Unavailable")
+        restriction = "unrestricted files" if sandbox.get("disable_sandbox") else "restricted files"
+        commands = (
+            "commands allowed"
+            if sandbox.get("command_policy", "allow") == "allow"
+            else "commands blocked"
+        )
+        if "disable_sandbox" not in sandbox or "command_policy" not in sandbox:
+            restriction, commands = "permissions unavailable", "refresh the backend"
+        sandbox_label = f"Sandbox: {directory}"
+        self.query_one("#sandbox-directory", Static).update(Text(sandbox_label))
+        self.query_one(
+            "#sandbox-directory"
+        ).tooltip = f"{sandbox_label} / {restriction} / {commands}"
         palette = self.app.palette
         params = status.get("current_params") or {}
         devices = gpu.get("devices", [])
@@ -161,4 +179,5 @@ class StudioHeader(Vertical):
         summary.append_text(device)
         summary.append(f"  |  {'RAM' if unified else 'VRAM'} {memory}  |  ", style=palette.muted)
         summary.append(state, style=color)
+        summary.append(f"\n{sandbox_label}", style=palette.muted)
         self.query_one("#header-summary", Static).update(summary)

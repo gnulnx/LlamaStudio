@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config_store import config_loader
 from .logger import logger
+from .sandbox import current_policy, effective_policy
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
@@ -41,7 +42,8 @@ def get_effective_workspace_root() -> Path:
     override = _current_workspace_root.get()
     if override is not None:
         return override
-    return Path(config_loader.get_workspace_root()).resolve()
+    policy = current_policy.get()
+    return Path(policy.root if policy else config_loader.get_workspace_root()).resolve()
 
 
 @dataclass(frozen=True)
@@ -147,7 +149,9 @@ def check_path_safe(file_path: str) -> Path:
     target = target.resolve()
 
     # Disabling containment does not change where relative paths are resolved.
-    if not config_loader.sandbox_disabled() and not target.is_relative_to(workspace_root):
+    policy = current_policy.get()
+    disabled = policy.disable_sandbox if policy else config_loader.sandbox_disabled()
+    if not disabled and not target.is_relative_to(workspace_root):
         raise ValueError(
             f"Permission Denied: Target path '{file_path}' lies outside the workspace directory."
         )
@@ -272,6 +276,8 @@ def get_absolute_path(file_path: str = ".") -> str:
 def run_command(command: str) -> str:
     """Execute a shell command inside the workspace root directory with a 15-second safety timeout."""
     try:
+        if effective_policy().command_policy != "allow":
+            return "Permission Denied: Shell commands are disabled in Sandbox settings."
         logger.info(f"[tools] Executing command: {command}")
         workspace_root = get_effective_workspace_root()
         res = subprocess.run(

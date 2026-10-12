@@ -229,9 +229,14 @@ def setup(backend: str, repair: bool, yes: bool) -> None:
         console.print(f"Keeping working llama-server: {current.binary}", markup=False)
         return
     try:
-        chosen, _ = selected_assets(backend)
+        chosen, assets = selected_assets(backend)
+        from app.inference_setup import ASSETS
+
+        size = sum(ASSETS[asset][0] for asset in assets) / 1024**2
         console.print(
-            f"Set up {chosen} inference in {settings.CONFIG_DIR}/inference. CUDA downloads are about 730 MiB.",
+            f"Set up {chosen} inference in {settings.CONFIG_DIR}/inference. "
+            f"Download size: about {size:.0f} MiB."
+            + (" Includes private CUDA libraries." if chosen == "cuda" else ""),
             markup=False,
         )
         if not yes:
@@ -271,6 +276,12 @@ def update(check_only: bool, yes: bool) -> None:
 )
 @click.option("--no-start", is_flag=True, help="Require an already running LlamaStudio backend.")
 @click.option(
+    "-w",
+    "--workspace",
+    "workspace_path",
+    help="Sandbox directory on the backend computer; defaults to launch directory for local backends.",
+)
+@click.option(
     "--theme",
     type=click.Choice(THEME_NAMES),
     default="default",
@@ -293,6 +304,7 @@ def update(check_only: bool, yes: bool) -> None:
 def tui(
     view: str,
     no_start: bool,
+    workspace_path: str | None,
     screenshot: str | None,
     size: str,
     palette: str | None,
@@ -350,8 +362,16 @@ def tui(
             allow_restart=not no_start and API_CONNECT_HOST in ("127.0.0.1", "localhost", "::1"),
             restart=lambda: start_server_background(open_browser=False),
         )
+    local_backend = API_CONNECT_HOST in ("127.0.0.1", "localhost", "::1")
+    sandbox_root = workspace_path or (str(Path.cwd()) if local_backend else None)
+    if sandbox_root and local_backend:
+        sandbox_path = Path(sandbox_root).expanduser().resolve()
+        if not sandbox_path.is_dir():
+            raise click.BadParameter("Sandbox directory must exist.", param_hint="--workspace")
+        sandbox_root = str(sandbox_path)
     application = StudioApp(
         API_BASE_URL,
+        workspace_root=sandbox_root,
         initial_view=view,
         palette_path=palette,
         theme_name=theme,

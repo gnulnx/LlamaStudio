@@ -79,6 +79,9 @@ activating it. NVIDIA setup also downloads the matching CUDA 12.8 runtime bundle
 setup does not install system drivers or change your shell environment. Your GPU
 driver must already work, and Linux Vulkan needs a working Vulkan loader/driver.
 Model loading still depends on model compatibility and available RAM/VRAM.
+Apple Silicon device discovery recognizes llama.cpp's `MTL0` Metal device name.
+Temporary gateway errors and interrupted downloads are retried up to three times;
+each retry starts fresh and still verifies the pinned size and SHA256 before activation.
 
 Managed installs live in `~/.config/llamastudio/inference` (or under
 `LLAMASTUDIO_CONFIG_DIR`). Setup preserves a working external engine by default.
@@ -316,6 +319,7 @@ Loading model 'DeepSeek-R1-Distill-Qwen-32B-Q5_K_M'...
 lls tui
 lls tui --view chat
 lls tui --no-start     # Connect only; fail if the backend is offline
+lls tui --workspace ~/project   # Explicit sandbox directory for this TUI session
 ```
 
 Backend launches use the same package as the CLI, even when your current directory
@@ -542,6 +546,12 @@ The application runs fully out-of-the-box with no manual configuration. On first
 ## 🛡️ Workspace Sandboxing & Embodiment
 
 By default, LlamaStudio restricts agent tools (like reading, writing, and listing files) to the configured workspace directory to prevent accidental path traversals. For CLI launches, the first-run workspace defaults to the directory where `lls start` was run.
+
+The web **Settings** page below **Logs** saves the default **Sandbox directory**, file restrictions, and shell-command permissions. The main web header shows the directory and permissions; the TUI shows its directory below Active Model (with permissions in the tooltip).
+
+Local `lls tui` sessions use their launch directory, including when reconnecting to an existing backend. `lls tui --workspace PATH` overrides it for that session without changing the web default. For a remote backend, the TUI uses the backend default unless `--workspace` explicitly names a directory on that computer.
+
+Each chat request captures the effective directory and permissions before streaming. Settings changes apply to new requests; a response in progress retains its original sandbox. Saving settings does not restart the backend or unload a model. File restrictions apply to file tools. Allowed shell commands start in the sandbox directory but run with your account's permissions; they are not isolated by those file restrictions.
 
 Workspace configuration is saved in `~/.config/llamastudio/config.json`. Environment variables are still supported for advanced/bootstrap overrides, but normal users should not need a `.env` file.
 

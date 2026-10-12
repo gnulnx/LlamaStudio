@@ -1,6 +1,7 @@
 """Launch lifecycle checks: no browser, no backend shutdown, useful CLI failures."""
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -38,6 +39,7 @@ class TestTuiCommand(unittest.TestCase):
         start.assert_not_called()
         browser.assert_not_called()
         self.assertEqual(application.call_args.kwargs["initial_view"], "chat")
+        self.assertEqual(application.call_args.kwargs["workspace_root"], str(Path.cwd()))
         application.return_value.run.assert_called_once()
 
     def test_starts_backend_without_opening_browser(self):

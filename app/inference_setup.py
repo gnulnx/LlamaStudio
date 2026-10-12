@@ -6,11 +6,14 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import threading
+import time
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -95,8 +98,9 @@ def diagnose(binary: str | None = None, *, backend: str = "auto") -> Diagnosis:
             return result
         setattr(result, field, output)
     # Actual device rows, not build/startup messages announcing a backend.
-    if backend in ("cuda", "vulkan", "metal") and not any(
-        line.strip().lower().startswith(backend) for line in result.devices.splitlines()
+    device_prefix = "(?:MTL|Metal)" if backend == "metal" else re.escape(backend)
+    if backend in ("cuda", "vulkan", "metal") and not re.search(
+        rf"^\s*{device_prefix}\d*\s*:", result.devices, re.MULTILINE | re.IGNORECASE
     ):
         result.problem = (
             f"No {backend.upper()} device is available. Check the system GPU driver "
@@ -176,21 +180,39 @@ def _download(asset: str, target: Path, progress: Callable[[str], None]) -> None
     suffix = asset.removeprefix("cudart-")
     filename = f"{prefix}llama-{RELEASE}-bin-{suffix}.tar.gz"
     progress(f"Downloading {filename} ({expected_size / 1024**2:.0f} MiB)")
-    digest = hashlib.sha256()
-    count = 0
-    with httpx.stream(
-        "GET", f"{RELEASE_URL}/{filename}", follow_redirects=True, timeout=120
-    ) as response:
-        response.raise_for_status()
-        with _safe(target).open("wb") as output:
-            for chunk in response.iter_bytes(1024 * 1024):
-                count += len(chunk)
-                if count > expected_size:
-                    raise InferenceError(f"Download size mismatch: {filename}")
-                digest.update(chunk)
-                output.write(chunk)
-    if count != expected_size or digest.hexdigest() != checksum:
-        raise InferenceError(f"Download size or SHA256 mismatch: {filename}")
+    url = f"{RELEASE_URL}/{filename}"
+    for attempt in range(3):
+        digest = hashlib.sha256()
+        count = 0
+        # A fresh URL also avoids replaying a cached gateway error on retry.
+        request_url = url if attempt == 0 else f"{url}?retry={uuid.uuid4().hex}"
+        try:
+            with httpx.stream("GET", request_url, follow_redirects=True, timeout=120) as response:
+                response.raise_for_status()
+                with _safe(target).open("wb") as output:
+                    for chunk in response.iter_bytes(1024 * 1024):
+                        count += len(chunk)
+                        if count > expected_size:
+                            raise InferenceError(f"Download size mismatch: {filename}")
+                        digest.update(chunk)
+                        output.write(chunk)
+            if count != expected_size or digest.hexdigest() != checksum:
+                raise InferenceError(f"Download size or SHA256 mismatch: {filename}")
+            return
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            if status is not None and status not in (408, 429, 500, 502, 503, 504):
+                raise
+            _safe(target).unlink(missing_ok=True)
+            if attempt == 2:
+                raise InferenceError(
+                    f"Could not download {filename} after 3 attempts "
+                    f"({'HTTP ' + str(status) if status else type(exc).__name__}). "
+                    "GitHub may be temporarily unavailable. Retry lls setup later; "
+                    "your previous engine has been preserved."
+                ) from exc
+            progress(f"Temporary download failure; retrying {filename} ({attempt + 2}/3)")
+            time.sleep(attempt + 1)
 
 
 def _extract(archive: Path, destination: Path) -> None:
