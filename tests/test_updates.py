@@ -71,12 +71,10 @@ def test_malformed_responses_raise_useful_error(monkeypatch, data):
         updates.latest_release()
 
 
-def test_cache_and_forced_refresh(monkeypatch):
+def test_each_check_refreshes_metadata(monkeypatch):
     request = mock_pypi(monkeypatch, payload())
     assert updates.check_release()[0] == Version("1.5.0")
     assert updates.check_release()[0] == Version("1.5.0")
-    assert request.call_count == 1
-    updates.check_release(force=True)
     assert request.call_count == 2
 
 
@@ -92,15 +90,12 @@ def test_invalid_cache_timestamps_are_not_recent(timestamp):
     assert not updates._recent(timestamp, 3600)
 
 
-def test_failed_checks_back_off(monkeypatch):
+def test_failed_checks_retry_on_next_check(monkeypatch):
     request = Mock(side_effect=httpx.ConnectError("offline"))
     monkeypatch.setattr(updates.httpx, "get", request)
-    with pytest.raises(updates.UpdateError):
-        updates.check_release()
-    assert updates.check_release()[0] is None
-    assert request.call_count == 1
-    with pytest.raises(updates.UpdateError):
-        updates.check_release(force=True)
+    for _ in range(2):
+        with pytest.raises(updates.UpdateError):
+            updates.check_release()
     assert request.call_count == 2
 
 
@@ -272,9 +267,34 @@ def test_decline_is_remembered_and_new_version_prompts_again(monkeypatch):
     assert not updates.run_update(console, automatic=True)
     confirm.assert_called_once()
     mock_pypi(monkeypatch, payload("1.6.0"))
-    updates.check_release(force=True)
     assert not updates.run_update(console, automatic=True)
     assert confirm.call_count == 2
+
+
+def test_next_launch_detects_release_published_after_previous_check(monkeypatch):
+    fake_installation(monkeypatch, version="1.6.0")
+    monkeypatch.setattr(updates, "is_interactive_terminal", lambda: True)
+    first = mock_pypi(monkeypatch, payload("1.6.0"))
+    confirm = Mock(return_value=False)
+    monkeypatch.setattr(updates.click, "confirm", confirm)
+    output = io.StringIO()
+    console = Console(file=output)
+    assert not updates.run_update(console, automatic=True)
+    first.assert_called_once()
+    confirm.assert_not_called()
+    published = mock_pypi(monkeypatch, payload("1.6.1"))
+    assert not updates.run_update(console, automatic=True)
+    published.assert_called_once()
+    confirm.assert_called_once()
+    assert "1.6.0 → 1.6.1" in output.getvalue()
+
+
+def test_explicit_current_version_message_describes_this_check(monkeypatch):
+    fake_installation(monkeypatch, version="1.6.1")
+    mock_pypi(monkeypatch, payload("1.6.1"))
+    result = CliRunner().invoke(cli, ["update", "--check"])
+    assert result.exit_code == 0
+    assert "listed by PyPI at this check" in result.output
 
 
 def test_accept_installs_exact_candidate(monkeypatch):
