@@ -36,8 +36,8 @@ pytestmark = pytest.mark.skipif(
 )
 ROOT = Path(__file__).resolve().parents[1]
 # Build the candidate and a simulated future release to test its first update.
-OLD_VERSION = "1.6.0"
-NEW_VERSION = "1.6.1"
+OLD_VERSION = "1.6.1"
+NEW_VERSION = "1.6.2"
 
 
 def run(command, *, cwd, env=None):
@@ -268,10 +268,15 @@ def test_real_pypi_upgrade_and_published_cli(package_index, installer):
     """Exercise unmodified PyPI URLs and download the real published package."""
     work, _, _ = package_index
     _, python, lls, env = prepare_environment(package_index, installer, "pypi", "0.0.0")
-    response = httpx.get("https://pypi.org/pypi/llamastudio/json", timeout=10)
-    response.raise_for_status()
-    expected = response.json()["info"]["version"]
     output = terminal([lls, "update"], cwd=work, env=env, answer="y")
+    # Publication may happen between two "latest" requests. Verify the version
+    # actually offered and installed against its immutable release metadata.
+    match = re.search(r"update available: 0\.0\.0 → ([0-9.]+)", output)
+    assert match, output
+    expected = match.group(1)
+    response = httpx.get(f"https://pypi.org/pypi/llamastudio/{expected}/json", timeout=10)
+    response.raise_for_status()
+    assert response.json()["info"]["version"] == expected
     assert f"Installed LlamaStudio {expected}" in output
     actual = run(
         [

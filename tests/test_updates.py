@@ -357,3 +357,13 @@ def test_successful_auto_upgrade_exits_before_launching_old_code(monkeypatch, co
     result = CliRunner().invoke(cli, [command])
     assert result.exit_code == 0, result.output
     backend.assert_not_called()
+
+
+@pytest.mark.parametrize("installer", ["pip", "uv"])
+def test_upgrade_refreshes_package_listings_after_publication(monkeypatch, installer):
+    monkeypatch.setattr(updates.shutil, "which", lambda name: "/tools/uv")
+    monkeypatch.setattr(updates.importlib.util, "find_spec", lambda name: object())
+    installed = updates.Installation(Version("1.6.0"), installer)
+    command = updates.upgrade_command(installed, Version("1.6.1"))
+    assert ("--refresh" if installer == "uv" else "--no-cache-dir") in command
+    assert command[-1] == "llamastudio==1.6.1"

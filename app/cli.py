@@ -22,6 +22,7 @@ from app.tools import check_path_safe
 from app.tui.application import StudioApp
 from app.tui.demo import DemoError, record_demo
 from app.tui.themes import THEME_NAMES, create_theme_adapter, resolve_initial_theme
+from app.tui_setup import prepare_inference
 from app.updates import UpdateError, run_update
 
 # Configure rich-click visual styling to match a premium terminal theme
@@ -337,6 +338,13 @@ def tui(
         config_loader.initialize_for_launch(Path.cwd())
         if not start_server_background(open_browser=False):
             raise click.ClickException("Could not start the LlamaStudio backend.")
+    if not screenshot:
+        prepare_inference(
+            API_BASE_URL,
+            console,
+            allow_restart=not no_start and API_CONNECT_HOST in ("127.0.0.1", "localhost", "::1"),
+            restart=lambda: start_server_background(open_browser=False),
+        )
     application = StudioApp(
         API_BASE_URL,
         initial_view=view,

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app.config import settings
 from app.launch_context import browser_host
 from app.launcher import app_url, open_browser, select_launch_view
 
@@ -16,7 +17,7 @@ class TestLauncherRouting(unittest.TestCase):
 
     def test_app_url_includes_launch_view_when_supplied(self):
         with patch.dict(os.environ, {"LLAMASTUDIO_BROWSER_HOST": "b2"}):
-            self.assertEqual(app_url("discover"), "http://b2:8765/?view=discover")
+            self.assertEqual(app_url("discover"), f"http://b2:{settings.APP_PORT}/?view=discover")
 
     def test_select_launch_view_uses_config_loader_and_model_scan(self):
         with (
@@ -42,7 +43,7 @@ class TestLauncherRouting(unittest.TestCase):
         ):
             open_browser()
 
-        mock_open.assert_called_once_with("http://b2:8765/?view=discover")
+        mock_open.assert_called_once_with(f"http://b2:{settings.APP_PORT}/?view=discover")
 
     def test_open_browser_skips_headless_session(self):
         with (
