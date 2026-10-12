@@ -316,6 +316,9 @@ lls tui --view chat
 lls tui --no-start     # Connect only; fail if the backend is offline
 ```
 
+Backend launches use the same package as the CLI, even when your current directory
+contains an older LlamaStudio checkout. The current directory remains your workspace.
+
 The TUI shares the web app's backend, model profiles, downloads, and saved
 conversations. Closing it leaves the backend and loaded model running. Discover
 supports Hugging Face search, sorting, README/details/files, GGUF selection,
