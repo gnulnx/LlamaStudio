@@ -193,9 +193,13 @@ class TestThemes(unittest.TestCase):
         ):
             safe.return_value.read_text.return_value = "{}"
             for name in THEME_NAMES:
-                create_theme_adapter(name, "colors.json").resolve()
+                resolved = create_theme_adapter(name, "colors.json").resolve()
+                self.assertEqual(resolved.dark, name != "light")
+                self.assertTrue(resolved.palette.primary.startswith("#"))
             for name in BUNDLED_THEME_NAMES:
-                create_theme_adapter(name).resolve()
+                resolved = create_theme_adapter(name).resolve()
+                self.assertEqual(resolved.dark, name != "light")
+                self.assertTrue(resolved.palette.primary.startswith("#"))
 
     def test_system_delegates_and_only_initial_failure_falls_back(self):
         class Source(ThemeAdapter):

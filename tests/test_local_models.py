@@ -1,129 +1,125 @@
-import os
-import sys
+"""Opt-in native model/tool tests, isolated from the user's running application."""
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from __future__ import annotations
 
 import json
+import os
+import signal
+import socket
+import subprocess
+import sys
 import time
+import uuid
 from pathlib import Path
 
+import httpx
 import pytest
 
-# Skip these tests in CI or standard pytest runs unless RUN_LOCAL_ONLY=1 is set
 pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_LOCAL_ONLY") != "1",
-    reason="Local-only integration tests. Run via tests/test_all.sh",
+    os.environ.get("RUN_LOCAL_ONLY") != "1", reason="Opt-in local model matrix: tests/test_all.sh"
 )
-
-# Resolve workspace root and files
-WORKSPACE_ROOT = Path(__file__).parent.parent.resolve()
-MODELS_JSON_PATH = Path(__file__).parent / "local_test_models.json"
+ROOT = Path(__file__).resolve().parent.parent
+MODELS = json.loads((Path(__file__).parent / "local_test_models.json").read_text())
 
 
-def load_test_models() -> list[str]:
-    """Load the list of target models to test from the editable JSON file."""
-    if MODELS_JSON_PATH.exists():
-        with open(MODELS_JSON_PATH) as f:
-            return json.load(f)
-    return [
-        "Qwen3.6-35B-A3B-UD-Q5_K_M",
-        "gemma-4-26B-A4B-it-Q8_0",
-        "Qwopus3.6-27B-v2-MTP-Q4_K_S",
-        "DeepSeek-R1-Distill-Qwen-32B-Q5_K_M",
-    ]
+@pytest.fixture
+def local_app(tmp_path):
+    from app.config_store import config_loader
 
-
-@pytest.fixture(scope="module", autouse=True)
-def setup_test_environment():
-    """Ensure we start with a clean state before running any model tests."""
-    from app.server_manager import ServerManager
-
-    server = ServerManager()
-    if server.is_running:
-        server.eject_model()
-    yield
-    if server.is_running:
-        server.eject_model()
-
-
-@pytest.mark.parametrize("model_query", load_test_models())
-def test_model_tool_calling(model_query):
-    """Load a model, query it to call the write_file tool, and verify file creation."""
-    from app.chat import ChatManager
-    from app.model_manager import scan_models
-    from app.server_manager import ServerManager
-
-    # 1. Locate the model GGUF file
-    scanned_models = scan_models()
-    resolved_path = None
-    model_name = None
-
-    for m in scanned_models:
-        if m.name == model_query or model_query.lower() in m.name.lower():
-            resolved_path = m.path
-            model_name = m.name
-            break
-
-    if not resolved_path:
-        pytest.skip(
-            f"Model '{model_query}' not found locally in scanned directories. Skipping test."
+    env = dict(os.environ)
+    env.update(
+        LLAMASTUDIO_CONFIG_DIR=str(tmp_path / "config"),
+        LLAMASTUDIO_CONFIG_FILE=str(tmp_path / "config/config.json"),
+        LLAMASTUDIO_MODEL_PROFILES_FILE=str(tmp_path / "profiles.json"),
+        LLAMASTUDIO_MODEL_SETTINGS_FILE=str(tmp_path / "legacy.json"),
+        LLAMASTUDIO_CONVERSATIONS_FILE=str(tmp_path / "conversations.json"),
+        LLAMASTUDIO_LOG_DIR=str(tmp_path / "logs"),
+        LLAMASTUDIO_SPEECH_DIR=str(tmp_path / "speech"),
+        LLAMASTUDIO_WORKSPACE_ROOT=str(tmp_path),
+        LLAMASTUDIO_MODEL_DIRS=json.dumps(config_loader.get_model_directories()),
+        LLAMASTUDIO_OPEN_BROWSER="0",
+        LLAMASTUDIO_NO_UPDATE_CHECK="1",
+        PYTHONPATH=str(ROOT),
+    )
+    sockets = []
+    try:
+        for key in ("APP_PORT", "LLAMA_SERVER_PORT", "SPEECH_SERVER_PORT"):
+            sock = socket.socket()
+            sock.bind(("127.0.0.1", 0))
+            sockets.append(sock)
+            env[f"LLAMASTUDIO_{key}"] = str(sock.getsockname()[1])
+    finally:
+        for sock in sockets:
+            sock.close()
+    url = f"http://127.0.0.1:{env['LLAMASTUDIO_APP_PORT']}"
+    with (tmp_path / "backend.log").open("w") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "app.launcher"],
+            cwd=tmp_path,
+            env=env,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
         )
+        try:
+            deadline = time.monotonic() + 15
+            while True:
+                assert process.poll() is None, (tmp_path / "backend.log").read_text()
+                try:
+                    if httpx.get(url + "/api/server/status", timeout=0.5).status_code == 200:
+                        break
+                except httpx.RequestError:
+                    pass
+                assert time.monotonic() < deadline, "Isolated backend failed to start"
+                time.sleep(0.05)
+            yield url, env
+        finally:
+            # This group was created above and contains only this test's backend/engine.
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5)
 
-    print(f"\n--- Testing model: {model_name} ---")
 
-    server = ServerManager()
-    chat = ChatManager()
-
-    # Create a fresh conversation
-    chat.new_conversation()
-
-    # Determine custom load settings for reasoning models
-    params = {}
-    if "deepseek" in model_name.lower():
-        params["chat_template"] = "deepseek-r1"
-
-    # 2. Boot/Load the model
-    print(f"Loading model from {resolved_path}...")
-    success = server.load_model(resolved_path, params)
-    assert success, f"Failed to load model {model_name}"
-    assert server.is_running, f"llama-server not running after loading {model_name}"
-
-    # 3. Formulate a prompt that strongly instructs tool invocation
-    prompt = (
-        f"You must use the 'write_file' tool to write a file named 'hello_{model_name}.txt' "
-        f"containing the message 'Hello from {model_name}!'. "
-        "Do not explain your action or do anything else; simply call the tool."
+@pytest.mark.parametrize("model_query", MODELS)
+def test_model_tool_calling(local_app, tmp_path, model_query):
+    url, env = local_app
+    models = httpx.get(url + "/api/models").json()["models"]
+    model = next((m for m in models if model_query.lower() in m["name"].lower()), None)
+    assert model is not None, f"Configured test model is missing: {model_query}"
+    loaded = httpx.post(
+        url + "/api/models/load",
+        json={
+            "path": model["path"],
+            "settings": {"cpu_mode": True, "gpu_layers": 0, "mmproj": None},
+        },
+        timeout=240,
     )
-
-    test_file_path = WORKSPACE_ROOT / f"hello_{model_name}.txt"
-    if test_file_path.exists():
-        test_file_path.unlink()
-
-    # 4. Stream chat response (this executes the tool under the hood synchronously)
-    print("Sending prompt and streaming response...")
-    stream = chat.stream_chat(
-        user_message=prompt,
-        temperature=0.1,  # Low temperature for highly deterministic tool calling
-        max_tokens=1000,
+    assert loaded.status_code == 200, loaded.text
+    marker = "LlamaStudio-tool-test-" + uuid.uuid4().hex
+    target = tmp_path / "tool-output.txt"
+    command = [
+        str(Path(sys.executable).parent / "lls"),
+        "--no-update-check",
+        "oneshot",
+        "--no-thinking",
+        "--max-tokens",
+        "1000",
+        f"Use write_file to create tool-output.txt containing exactly {marker}. Do not use a shell command.",
+    ]
+    result = subprocess.run(
+        command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=900
     )
-
-    # Consume the generator to trigger all tool executions and intermediate turns
-    _ = list(stream)
-
-    # 5. Verify the tool call was made and the file exists in the workspace
-    assert test_file_path.exists(), (
-        f"Model {model_name} failed to call write_file tool and create the file."
-    )
-
-    # Check content of created file
-    content = test_file_path.read_text(encoding="utf-8").strip()
-    print(f"File content created: '{content}'")
-    assert f"Hello from {model_name}" in content or "Hello" in content, (
-        f"File content mismatch: {content}"
-    )
-
-    # 6. Cleanup file and eject model to release memory for subsequent tests
-    test_file_path.unlink()
-    print(f"Cleaning up and ejecting model {model_name} to free VRAM...")
-    server.eject_model()
-    time.sleep(1.0)  # Grace period for complete process termination
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert target.read_text().strip() == marker
+    saved = json.loads((tmp_path / "conversations.json").read_text())
+    calls = [
+        call
+        for conversation in saved["conversations"].values()
+        for message in conversation["messages"]
+        for call in message.get("tool_calls") or []
+    ]
+    assert any(call["function"]["name"] == "write_file" for call in calls)

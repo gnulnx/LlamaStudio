@@ -2,11 +2,14 @@ import asyncio
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import Response
+from fastapi.testclient import TestClient
 
 # Ensure the app package can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -197,67 +200,137 @@ class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
                 await downloader._active_task
         downloader._active_task = None
         downloader._cancel_event = None
+        self.payload = b"GGUF" + bytes(range(256)) * 4096
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.hold = False
+        self.response_status = 200
+        self.ranges = []
+        test = self
 
-    async def test_downloader_initial_state(self):
+        class Origin(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                range_header = self.headers.get("Range", "bytes=0-")
+                test.ranges.append(range_header)
+                offset = int(range_header.removeprefix("bytes=").removesuffix("-"))
+                body = test.payload[offset:]
+                self.send_response(206 if offset else test.response_status)
+                self.send_header("Content-Length", str(len(body)))
+                if offset:
+                    self.send_header(
+                        "Content-Range",
+                        f"bytes {offset}-{len(test.payload) - 1}/{len(test.payload)}",
+                    )
+                self.end_headers()
+                test.started.set()
+                if test.hold:
+                    test.release.wait(timeout=10)
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    self.wfile.write(body)
+
+        self.origin = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
+        self.thread = threading.Thread(target=self.origin.serve_forever, daemon=True)
+        self.thread.start()
+        self.directory = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.root = Path(self.directory.name)
+        from app import model_manager
+
+        self.model_cache = model_manager._model_cache
+        self.directories = patch(
+            "app.downloader.config_loader.get_model_directories", return_value=[str(self.root)]
+        )
+        self.directories.start()
+        self.origin_url = patch.object(
+            downloader,
+            "_resolve_url",
+            return_value=f"http://127.0.0.1:{self.origin.server_port}/model.gguf",
+        )
+        self.origin_url.start()
+
+    async def asyncTearDown(self):
+        await downloader.cancel_download()
+        self.release.set()
+        await asyncio.to_thread(self.origin.shutdown)
+        self.origin.server_close()
+        self.thread.join(timeout=2)
+        self.origin_url.stop()
+        self.directories.stop()
+        self.directory.cleanup()
+        from app import model_manager
+
+        model_manager._model_cache = self.model_cache
+
+    async def test_idle_progress_does_not_expose_stale_transfer_metadata(self):
+        downloader.repo_id = "old/repo"
+        downloader.downloaded_bytes = 42
         self.assertFalse(downloader.is_active)
         progress = downloader.get_progress()
-        self.assertEqual(progress["status"], "idle")
+        self.assertEqual(progress, {"status": "idle"})
 
-    @patch("app.downloader.ModelDownloader._download_loop", new_callable=AsyncMock)
-    async def test_start_download_success(self, mock_download_loop):
-        # Mock download loop to run cleanly without actually downloading anything
-        mock_download_loop.return_value = None
+    async def test_download_transfers_complete_bytes_and_refreshes_the_real_catalog(self):
+        from app.model_manager import get_models
 
-        started = await downloader.start_download("test/repo", "model.gguf")
-        self.assertTrue(started)
-        self.assertTrue(downloader.is_active)
-        self.assertEqual(downloader.repo_id, "test/repo")
-        self.assertEqual(downloader.filename, "model.gguf")
-        self.assertEqual(downloader.status, "downloading")
+        self.assertTrue(await downloader.start_download("author/repo", "model.gguf"))
+        progress = await downloader.wait_for_completion()
+        target = self.root / "author/repo/model.gguf"
+        self.assertEqual(target.read_bytes(), self.payload)
+        self.assertFalse(target.with_name("model.gguf.tmp").exists())
+        self.assertEqual(progress["status"], "completed")
+        self.assertEqual(progress["downloaded_bytes"], len(self.payload))
+        self.assertEqual(progress["percent"], 100)
+        self.assertIn(str(target), [model.path for model in get_models()])
+        from app.main import app
 
-        # Cleanup task
+        published = TestClient(app).get("/api/models/download/active").json()
+        self.assertFalse(published["active"])
+        self.assertEqual(published["progress"]["downloaded_bytes"], len(self.payload))
+
+    async def test_second_download_is_rejected_during_a_real_transfer(self):
+        self.hold = True
+        self.assertTrue(await downloader.start_download("author/repo", "model.gguf"))
+        self.assertTrue(await asyncio.to_thread(self.started.wait, 5))
+        from app.main import app
+
+        self.assertTrue(TestClient(app).get("/api/models/download/active").json()["active"])
+        self.assertFalse(await downloader.start_download("other/repo", "other.gguf"))
+        self.assertEqual(downloader.repo_id, "author/repo")
+        self.release.set()
+        self.assertEqual((await downloader.wait_for_completion())["status"], "completed")
+        self.assertEqual((self.root / "author/repo/model.gguf").read_bytes(), self.payload)
+        self.assertFalse((self.root / "other/repo/other.gguf").exists())
+
+    async def test_cancelling_a_real_transfer_removes_partial_files(self):
+        self.hold = True
+        self.assertTrue(await downloader.start_download("author/repo", "model.gguf"))
+        self.assertTrue(await asyncio.to_thread(self.started.wait, 5))
         await downloader.cancel_download()
+        self.assertEqual(downloader.status, "cancelled")
+        self.assertFalse(downloader.is_active)
+        self.assertFalse((self.root / "author/repo/model.gguf").exists())
+        self.assertFalse((self.root / "author/repo/model.gguf.tmp").exists())
 
-    @patch("app.downloader.ModelDownloader._download_loop", new_callable=AsyncMock)
-    async def test_double_download_prevention(self, mock_download_loop):
-        mock_download_loop.return_value = None
+    async def test_http_failure_never_publishes_a_completed_model(self):
+        self.response_status = 403
+        self.assertTrue(await downloader.start_download("author/repo", "model.gguf"))
+        result = await downloader.wait_for_completion()
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse((self.root / "author/repo/model.gguf").exists())
+        self.assertFalse((self.root / "author/repo/model.gguf.tmp").exists())
 
-        started1 = await downloader.start_download("test/repo1", "model1.gguf")
-        self.assertTrue(started1)
+    async def test_partial_download_resumes_over_http_without_losing_bytes(self):
+        target = self.root / "author/repo/model.gguf"
+        target.parent.mkdir(parents=True)
+        target.with_name("model.gguf.tmp").write_bytes(self.payload[:128])
+        self.assertTrue(await downloader.start_download("author/repo", "model.gguf"))
+        self.assertEqual((await downloader.wait_for_completion())["status"], "completed")
+        self.assertEqual(self.ranges, ["bytes=128-"])
+        self.assertEqual(target.read_bytes(), self.payload)
 
-        # Attempting second download should return False
-        started2 = await downloader.start_download("test/repo2", "model2.gguf")
-        self.assertFalse(started2)
 
-        # Cleanup
-        await downloader.cancel_download()
-
-    @patch("app.model_manager.refresh_models")
-    @patch("app.downloader.config_loader.get_model_directories")
-    async def test_download_loop_uses_direct_huggingface_download(
-        self, mock_model_directories, mock_refresh
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_model_directories.return_value = [tmp]
-
-            async def fake_download(repo_id, filename, tmp_path):
-                self.assertEqual(repo_id, "author/repo")
-                self.assertEqual(filename, "model.gguf")
-                target = Path(tmp_path)
-                target.write_bytes(b"gguf")
-
-            with patch.object(
-                downloader,
-                "_download_from_huggingface",
-                side_effect=fake_download,
-            ) as mock_direct_download:
-                await downloader._download_loop("author/repo", "model.gguf")
-
-            mock_direct_download.assert_called_once()
-            mock_refresh.assert_called_once()
-            self.assertEqual(downloader.status, "completed")
-            self.assertTrue((Path(tmp) / "author" / "repo" / "model.gguf").exists())
-
+class TestDownloadUrl(unittest.TestCase):
     @patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False)
     def test_direct_download_helpers_escape_paths_and_pass_token(self):
         self.assertEqual(
@@ -378,12 +451,6 @@ class TestFastAPIPoints(unittest.TestCase):
         self.assertEqual(response_data["details"]["id"], "test/model")
         self.assertEqual(response_data["readme"], "# Model README")
         self.assertEqual(http_response.headers["Cache-Control"], "no-store, max-age=0")
-
-    def test_active_download_endpoint(self):
-        from app.main import is_download_active
-
-        response = asyncio.run(is_download_active())
-        self.assertIn("active", response)
 
 
 if __name__ == "__main__":

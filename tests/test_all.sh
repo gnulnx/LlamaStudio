@@ -16,7 +16,7 @@ export RUN_LOCAL_ONLY=1
 
 # Run pytest inside project root
 cd "$PROJECT_ROOT"
-pytest -s -v tests/test_local_models.py
+pytest -s -v tests/test_local_models.py --basetemp=.runtime/local-model-tests "$@"
 
 echo "=========================================================="
 echo "🎉 GGUF Tool Calling Integration Tests Completed!"

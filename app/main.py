@@ -185,6 +185,67 @@ async def server_logs(type: str = "llama", lines: int = 50):
 
 # ─── Model discovery & Settings ───────────────────────────────
 
+_model_load_lock = asyncio.Lock()
+
+
+async def _prepare_model_projector(model_path: str, params: dict) -> bool:
+    """Prepare vision with the model, preserving an explicit text-only override."""
+    if isinstance(params.get("mmproj"), str) and not params["mmproj"].strip():
+        params.pop("mmproj")
+    if "mmproj" in params:
+        return str(params["mmproj"] or "").strip().lower() not in (
+            "",
+            "none",
+            "off",
+            "disable",
+            "disabled",
+            "false",
+        )
+    from .downloader import downloader
+    from .model_manager import resolve_model_projector
+
+    projector = await resolve_model_projector(model_path)
+    if projector["status"] == "downloadable":
+        if not await downloader.start_download(
+            projector["repo_id"], projector["filename"], target_dir=Path(model_path).parent
+        ):
+            raise HTTPException(
+                409, "Another download is active. Wait for it before loading this vision model."
+            )
+        result = await downloader.wait_for_completion()
+        if result["status"] != "completed":
+            raise HTTPException(
+                502,
+                f"Could not prepare the vision projector: {result.get('error') or result['status']}",
+            )
+        params["mmproj"] = str(Path(model_path).parent / projector["filename"])
+        return True
+    if projector["status"] == "local":
+        params["mmproj"] = projector["projector_path"]
+    return projector["status"] == "local"
+
+
+async def _load_prepared_model(model_path: str, params: dict) -> bool:
+    if _model_load_lock.locked():
+        raise HTTPException(409, "A model is already being loaded.")
+    async with _model_load_lock:
+        server._is_loading = True
+        try:
+            vision_expected = await _prepare_model_projector(model_path, params)
+            if not await asyncio.to_thread(server.load_model, model_path, params):
+                raise HTTPException(
+                    500, server.last_error or "Failed to load model. Check server logs."
+                )
+            multimodal = await asyncio.to_thread(server.supports_multimodal)
+            if vision_expected and not multimodal:
+                raise HTTPException(
+                    500,
+                    "The model's vision projector could not be loaded. Check the engine log for details.",
+                )
+            return multimodal
+        finally:
+            server._is_loading = False
+
 
 @app.get("/api/models")
 async def list_models():
@@ -219,12 +280,14 @@ async def load_model(request: Request):
         raise HTTPException(400, "Model path is required")
 
     config_loader.save_model_profile(model_path, model_params)
-    result = server.load_model(model_path, model_params)
-    if not result:
-        # Report what llama-server actually said instead of sending people to the logs.
-        raise HTTPException(500, server.last_error or "Failed to load model. Check server logs.")
+    multimodal = await _load_prepared_model(model_path, model_params)
 
-    return {"status": "ok", "model": model_path, "running": server.is_running}
+    return {
+        "status": "ok",
+        "model": model_path,
+        "running": server.is_running,
+        "multimodal": multimodal,
+    }
 
 
 @app.post("/api/models/reload-current")
@@ -236,16 +299,12 @@ async def reload_current_model():
 
     model_params = dict(server._current_params)
     model_params.pop("mmproj", None)
-    if not server.load_model(model_path, model_params):
-        raise HTTPException(
-            500,
-            server.last_error or "Failed to reload the model with its vision projector.",
-        )
+    multimodal = await _load_prepared_model(model_path, model_params)
 
     return {
         "status": "ok",
         "model": model_path,
-        "multimodal": server.supports_multimodal(),
+        "multimodal": multimodal,
         "audio": server.supports_audio(),
     }
 

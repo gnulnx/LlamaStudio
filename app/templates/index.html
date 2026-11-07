@@ -3070,7 +3070,7 @@
             const isLoaded = m.path === loadedModelPath && isServerRunning;
 
             return `
-                <tr id="row-${btoa(m.path)}" onclick="selectModelRow('${escapeHtml(m.path)}')" class="${m.path === selectedModelPath ? 'selected' : ''}">
+                <tr id="row-${btoa(m.path)}" data-model-path="${escapeHtmlAttribute(m.path)}" onclick="selectModelRow(this.dataset.modelPath)" class="${m.path === selectedModelPath ? 'selected' : ''}">
                     <td>
                         <div class="model-row-name">${escapeHtml(m.name)}</div>
                         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Publisher: ${escapeHtml(pub)}</div>
@@ -3346,7 +3346,7 @@
         const lTitle = document.getElementById('loaderTitle');
         const lSub = document.getElementById('loaderSubtitle');
         if (lTitle) lTitle.textContent = `Loading ${path.split('/').pop()}...`;
-        if (lSub) lSub.textContent = `Spinning up llama-server. Please wait.`;
+        if (lSub) lSub.textContent = `Preparing the model and its vision components. Please wait.`;
 
         try {
             const res = await fetch('/api/models/load', {
@@ -3852,7 +3852,7 @@
         const recoveryData = recovery || {};
         let action = '';
         if (recoveryData.status === 'downloadable') {
-            const encodedRecovery = escapeHtml(JSON.stringify(recoveryData));
+            const encodedRecovery = escapeHtmlAttribute(JSON.stringify(recoveryData));
             const sizeMb = recoveryData.size
                 ? ` (${Math.round(recoveryData.size / (1024 * 1024))} MB)`
                 : '';
@@ -4702,6 +4702,10 @@
         return div.innerHTML;
     }
 
+    function escapeHtmlAttribute(text) {
+        return escapeHtml(text).replace(/"/g, '&quot;');
+    }
+
     // ─── HUGGING FACE MODEL SEARCH & DOWNLOADS ─────────────────
     let activeDownloadRepo = null;
     let activeDownloadFile = null;
@@ -5069,11 +5073,13 @@
             if (!data.multimodal) {
                 throw new Error('The reloaded llama-server still does not report multimodal capability.');
             }
-            showNotification('Vision enabled', 'The projector is loaded and the model is ready.');
+            closeOverlay('processLoaderOverlay');
             if (retryAfterReload) {
                 const input = document.getElementById('chatInput');
                 input.value = 'Now answer the image I attached above.';
                 await sendChatMessage();
+            } else {
+                showNotification('Vision enabled', 'The projector is loaded and the model is ready.');
             }
         } catch (error) {
             alert(`Could not enable vision: ${error.message}`);
@@ -5136,7 +5142,9 @@
                     setTimeout(() => {
                         document.getElementById('downloadProgressCard').style.display = 'none';
                     }, 4000);
-                    showNotification("Download Complete", `${file} downloaded successfully. Refreshing model catalog.`);
+                    if (!pendingProjectorReloadModel) {
+                        showNotification("Download Complete", `${file} downloaded successfully. Refreshing model catalog.`);
+                    }
                     await rescanModels();
                     if (pendingProjectorReloadModel) {
                         await reloadCurrentModelForVision(true);

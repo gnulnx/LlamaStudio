@@ -420,18 +420,54 @@ describe("Frontend Chat Settings and Stream Stop Features", () => {
         expect(html).toBe('');
     });
 
-    test("renderVisionRecovery offers the resolved projector download", () => {
-        const html = window.renderVisionRecovery("Projector missing.", {
-            status: "downloadable",
-            repo_id: "author/model",
-            filename: "mmproj-f16.gguf",
-            model_path: "/models/model.gguf",
+    test.each([
+        ['saved', '/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf'],
+        ['streamed', '/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf'],
+        ['saved', '/models/quoted " & <model>/model.gguf'],
+        ['streamed', '/models/quoted " & <model>/model.gguf'],
+    ])('%s projector recovery button downloads the exact resolved artifact for %s', async (kind, modelPath) => {
+        const recovery = {
+            status: 'downloadable',
+            repo_id: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+            filename: 'mmproj-Qwen3-VL-8B-Instruct-F16.gguf',
+            model_path: modelPath,
             size: 990000000
-        });
+        };
+        if (kind === 'saved') {
+            window.renderMessagesContent([{
+                role: 'assistant', content: 'Projector missing.', vision_recovery: recovery
+            }]);
+        } else {
+            window.document.getElementById('messagesList').innerHTML = '<div class="msg-body"></div>';
+            window.renderStreamBlocks(window.document.getElementById('messagesList'), [{
+                type: 'vision_error', message: 'Projector missing.', recovery
+            }]);
+        }
+        const button = window.document.querySelector('.vision-recovery button');
+        expect(button.textContent).toContain('Download projector');
+        expect(JSON.parse(button.dataset.recovery)).toEqual(recovery);
+        expect(window.document.querySelector('.vision-recovery model')).toBeNull();
+        window.alert = jest.fn();
+        window.startProgressTracking = jest.fn();
+        window.fetch.mockResolvedValueOnce({ok: true});
+        const clicked = jest.spyOn(window, 'downloadVisionProjectorFromButton');
 
-        expect(html).toContain("Download projector");
-        expect(html).toContain("mmproj-f16.gguf");
-        expect(html).toContain("data-recovery=");
+        button.click();
+        expect(clicked).toHaveBeenCalledWith(button);
+        await clicked.mock.results[0].value;
+
+        expect(window.fetch).toHaveBeenCalledWith('/api/models/download', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                repo_id: recovery.repo_id,
+                filename: recovery.filename,
+                target_model_path: modelPath
+            })
+        });
+        expect(window.startProgressTracking).toHaveBeenCalledWith(recovery.repo_id, recovery.filename);
+        expect(button.disabled).toBe(true);
+        expect(window.alert).not.toHaveBeenCalled();
     });
 
     test("renderMessagesContent shows compact persisted response metrics", () => {
