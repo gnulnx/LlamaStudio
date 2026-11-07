@@ -3,6 +3,7 @@
 Run the Python and frontend suites from the repository root:
 
 ```sh
+mkdir -p .runtime
 python -m pytest -q --basetemp=.runtime/unit-tests
 npm test -- --runInBand
 ```

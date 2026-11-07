@@ -128,4 +128,6 @@ jobs:
       - name: Exercise real browser and backend workflows
         env:
           RUN_BROWSER_TESTS: "1"
-        run: python -m pytest tests/test_browser_workflows.py -v --basetemp=.runtime/browser-tests
+        run: |
+          mkdir -p .runtime
+          python -m pytest tests/test_browser_workflows.py -v --basetemp=.runtime/browser-tests
