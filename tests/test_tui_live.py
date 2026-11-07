@@ -11,7 +11,7 @@ import asyncio
 import os
 import unittest
 
-from textual.widgets import Checkbox, Markdown
+from textual.widgets import Checkbox, DataTable, Markdown, Select, Static
 
 from app.cli import API_BASE_URL
 from app.tools import check_path_safe
@@ -101,6 +101,34 @@ class TestLiveVisualTUI(unittest.IsolatedAsyncioTestCase):
     RUN_TUI_VISUAL=1 python -m pytest tests/test_tui_live.py -k Visual -q
     Does not load/unload a model or create/switch a conversation.
     """
+
+    async def test_live_discover_sizes_and_individual_gpu_estimates(self):
+        app = StudioApp(API_BASE_URL)
+        async with app.run_test(size=(190, 52)) as pilot:
+            for _ in range(3):
+                await asyncio.wait_for(app.workers.wait_for_complete(), timeout=60)
+                await pilot.pause()
+            table = app.query_one("#hub-table", DataTable)
+            self.assertEqual(str(table.columns["size"].label), "Size (GB)")
+            self.assertTrue(
+                any(
+                    "GB" in table.get_cell(row.key, "size").renderable for row in table.ordered_rows
+                )
+            )
+            self.assertIn("#", app.query_one("#hub-readme", Markdown).source)
+            target = app.query_one("#hub-gpu-device", Select)
+            self.assertNotEqual(target.value, "all")
+            for device in app.gpu.get("devices", []):
+                target.value = str(device.get("id", device.get("index")))
+                await pilot.pause()
+                self.assertIn(device["name"], str(app.query_one("#hub-gpu", Static).render()))
+            for width, height in ((190, 52), (120, 36), (80, 24)):
+                await pilot.resize_terminal(width, height)
+                await pilot.pause()
+                self.assertIn("size", table.columns)
+                screenshot = check_path_safe(f".runtime/tui/discover-sizes-{width}.svg")
+                screenshot.parent.mkdir(parents=True, exist_ok=True)
+                app.save_screenshot(filename=str(screenshot))
 
     async def test_live_header_and_dropdowns(self):
         app = StudioApp(API_BASE_URL)
