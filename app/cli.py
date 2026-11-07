@@ -741,9 +741,8 @@ def load(model, reload, **kwargs):
         if not wait_for_server_ready(20):
             console.print("[bold red]Failed to reload and start FastAPI server.[/bold red]")
             return
-    elif not is_server_online():
-        if not start_server_background():
-            return
+    elif not is_server_online() and not start_server_background():
+        return
 
     # 3. Compile custom settings parameters. Start with the UI profile so CLI loads
     # do not discard tuned context/KV/cache settings, then apply explicit overrides.
