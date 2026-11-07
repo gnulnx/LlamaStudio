@@ -229,7 +229,11 @@ class DiscoverView(StudioView):
         self.details = data.get("details") or {}
         siblings = self.details.get("siblings") or []
         self.files = {file["rfilename"]: file for file in siblings if file.get("rfilename")}
-        names = sorted(name for name in self.files if name.lower().endswith(".gguf"))
+        names = sorted(
+            self.details.get("gguf_files")
+            if "gguf_files" in self.details
+            else (name for name in self.files if name.lower().endswith(".gguf"))
+        )
         quant = self.query_one("#hub-quant", Select)
         quant.set_options([(Text(name), name) for name in names])
         quant.disabled = not names

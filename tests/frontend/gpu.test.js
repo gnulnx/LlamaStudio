@@ -41,6 +41,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
             <div id="hfDetailsSidebar">
                 <div id="hfSelectedModelRepo">google/gemma-2-9b-it-GGUF</div>
                 <div id="hfSelectedModelName">gemma-2-9b-it-GGUF</div>
+                <div id="hfGpuSelectGroup"><select id="hfGpuSelect"></select></div>
                 
                 <select id="hfQuantSelect">
                     <option value="gemma-2-9b-it.Q4_K_M.gguf">gemma-2-9b-it.Q4_K_M.gguf</option>
@@ -87,6 +88,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
 
     afterEach(() => {
         jest.restoreAllMocks();
+        dom.window.close();
     });
 
     test("fetchGpuInfo fetches from backend and updates the UI", async () => {
@@ -109,7 +111,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
         const gpuText = window.document.getElementById('hfGpuNameText');
 
         expect(gpuDiv.style.display).toBe('flex');
-        expect(gpuText.textContent).toBe('NVIDIA GeForce RTX 5090 (31 GB VRAM)');
+        expect(gpuText.textContent).toBe('NVIDIA GeForce RTX 5090 (31.0 GB VRAM)');
     });
 
     test("detectGPU falls back when backend info is missing", () => {
@@ -139,7 +141,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
         });
     });
 
-    test("evaluateVramEstimate correctly calculates and displays Fits Fully badge for a 5.58 GB model on RTX 5090 (31 GB)", () => {
+    test("evaluateVramEstimate displays an estimated fit for a 5.58 GB model on RTX 5090 (31 GB)", () => {
         window.backendGpuInfo = {
             name: "NVIDIA GeForce RTX 5090",
             vram: 31
@@ -151,7 +153,7 @@ describe("Frontend GPU Detection and UI Estimator", () => {
         window.evaluateVramEstimate();
 
         const badgeContainer = window.document.getElementById('hfVramEstimator');
-        expect(badgeContainer.innerHTML).toContain("Fits Fully on NVIDIA GeForce RTX 5090");
+        expect(badgeContainer.innerHTML).toContain("Estimated fit on NVIDIA GeForce RTX 5090");
         expect(badgeContainer.innerHTML).toContain("5.6 GB GGUF");
     });
 
@@ -169,5 +171,91 @@ describe("Frontend GPU Detection and UI Estimator", () => {
         const badgeContainer = window.document.getElementById('hfVramEstimator');
         expect(badgeContainer.innerHTML).toContain("Exceeds 31GB VRAM - Heavy CPU Fallback");
         expect(badgeContainer.innerHTML).toContain("37.3 GB");
+    });
+
+    function twoGpus() {
+        window.backendGpuInfo = {
+            name: 'GPU 0', vram: 24, total_system_vram: 56,
+            devices: [
+                {id: '0', name: 'GPU 0', vram: 24, total_vram: 23.9},
+                {id: '1', name: 'RTX 5090', vram: 32, total_vram: 31.8}
+            ]
+        };
+        window.updateGpuUi();
+    }
+
+    test('uses one GPU by default instead of pooling all detected VRAM', () => {
+        twoGpus();
+        expect(window.document.getElementById('hfGpuSelect').value).toBe('0');
+        expect(window.detectGPU()).toEqual({name: 'GPU 0', vram: 23.9});
+        expect(window.document.getElementById('hfGpuNameText').textContent).toBe('GPU 0 (23.9 GB VRAM)');
+    });
+
+    test('changing the target GPU recalculates fit and remembers the selection', () => {
+        twoGpus();
+        window.selectedHfModelDetails.siblings[0].size = 27 * 1024 ** 3;
+        window.evaluateVramEstimate();
+        const badge = window.document.getElementById('hfVramEstimator');
+        expect(badge.textContent).toContain('Exceeds 23.9GB VRAM');
+        const select = window.document.getElementById('hfGpuSelect');
+        select.value = '1';
+        window.changeHfGpuDevice();
+        expect(badge.textContent).toContain('Estimated fit on RTX 5090');
+        expect(window.localStorage.getItem('llamastudio-discover-gpu')).toBe('1');
+        select.replaceChildren();
+        window.updateGpuUi();
+        expect(select.value).toBe('1');
+    });
+
+    test('uses combined VRAM only when All GPUs is explicitly selected', () => {
+        twoGpus();
+        window.document.getElementById('hfGpuSelect').value = 'all';
+        window.changeHfGpuDevice();
+        expect(window.detectGPU().vram).toBeCloseTo(55.7);
+        expect(window.detectGPU().name).toContain('Multi-GPU');
+    });
+
+    test('a saved GPU that is no longer present falls back to one available device', () => {
+        window.localStorage.setItem('llamastudio-discover-gpu', 'missing');
+        twoGpus();
+        expect(window.detectGPU().name).toBe('GPU 0');
+    });
+
+    test('unknown GPU memory never produces a fit badge', () => {
+        window.backendGpuInfo = {name: 'GPU', vram: 8, total_vram: null};
+        window.evaluateVramEstimate();
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('GPU memory unavailable');
+    });
+
+    test('unknown file sizes never use a guessed weight size', () => {
+        window.backendGpuInfo = {name: 'GPU', vram: 32};
+        delete window.selectedHfModelDetails.siblings[0].size;
+        window.evaluateVramEstimate();
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('File size unavailable');
+    });
+
+    test('uses LFS size when the top-level file size is absent', () => {
+        window.backendGpuInfo = {name: 'GPU', vram: 32};
+        delete window.selectedHfModelDetails.siblings[0].size;
+        window.selectedHfModelDetails.siblings[0].lfs = {size: 7 * 1024 ** 3};
+        window.evaluateVramEstimate();
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('7.0 GB GGUF');
+    });
+
+    test('a split file uses the complete model weight size instead of one shard', () => {
+        window.backendGpuInfo = {name: 'GPU', vram: 24};
+        const file = 'model-00001-of-00002.gguf';
+        window.document.getElementById('hfQuantSelect').add(new window.Option(file, file));
+        window.document.getElementById('hfQuantSelect').value = file;
+        window.selectedHfModelDetails = {
+            siblings: [{rfilename: file, size: 1024 ** 3}],
+            gguf_sizes: {[file]: 30 * 1024 ** 3}
+        };
+        window.evaluateVramEstimate();
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('30.0 GB');
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('Exceeds');
+        delete window.selectedHfModelDetails.gguf_sizes;
+        window.evaluateVramEstimate();
+        expect(window.document.getElementById('hfVramEstimator').textContent).toContain('File size unavailable');
     });
 });

@@ -954,6 +954,7 @@
         /* Discovered List Side */
         .models-list-container {
             flex: 1;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -2503,6 +2504,7 @@
                             <thead>
                                 <tr>
                                     <th>Model Name</th>
+                                    <th title="Full GGUF weight sizes across available quantizations; runtime memory is additional">Size (GB)</th>
                                     <th>Author</th>
                                     <th>Downloads</th>
                                     <th>Likes</th>
@@ -2527,6 +2529,11 @@
                             <label class="control-label">Select Quantization (.gguf)</label>
                             <select class="control-input" id="hfQuantSelect" onchange="evaluateVramEstimate()"></select>
                         </div>
+
+                        <div class="control-group" id="hfGpuSelectGroup" style="display: none;">
+                            <label class="control-label" for="hfGpuSelect">GPU for memory estimate</label>
+                            <select class="control-input" id="hfGpuSelect" onchange="changeHfGpuDevice()"></select>
+                        </div>
                         
                         <!-- Detected GPU Info -->
                         <div id="hfGpuInfo" style="margin-top: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; border: 1px dashed var(--border); padding: 8px; border-radius: 6px; width: 100%; display: none; align-items: center; gap: 6px; justify-content: center; background: rgba(255, 255, 255, 0.02);">
@@ -2550,7 +2557,7 @@
                         <button class="settings-tab-btn active" style="flex: 1; text-align: center;" id="tabBtn-hfReadme">Model README</button>
                     </div>
 
-                    <div class="settings-tab-content active" id="settingsTab-hfReadme" style="padding: 16px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--text-secondary); height: calc(100vh - 430px);">
+                    <div class="settings-tab-content active" id="settingsTab-hfReadme" style="padding: 16px; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; color: var(--text-secondary);">
                         <div id="hfReadmeContent" class="markdown-body">Loading README...</div>
                     </div>
                 </div>
@@ -2664,14 +2671,7 @@
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.name) {
-                    window.backendGpuInfo = {
-                        name: data.name,
-                        vram: data.vram,
-                        devices: data.devices || [],
-                        total_system_vram: data.total_system_vram,
-                        total_system_free: data.total_system_free,
-                        device_count: data.device_count || 1
-                    };
+                    window.backendGpuInfo = data;
                     populateGpuDeviceSelect();
                     updateGpuUi();
                 }
@@ -2718,18 +2718,38 @@
     }
 
     function updateGpuUi() {
+        const select = document.getElementById('hfGpuSelect');
+        const devices = window.backendGpuInfo?.devices || [];
+        if (select && devices.length) {
+            const current = select.value || localStorage.getItem('llamastudio-discover-gpu');
+            select.replaceChildren();
+            devices.forEach(d => {
+                const id = String(d.id ?? d.index);
+                const capacity = 'total_vram' in d ? d.total_vram : d.vram;
+                const label = Number.isFinite(capacity) ? `${capacity.toFixed(1)} GB` : 'Memory unavailable';
+                select.add(new Option(`GPU ${id}: ${d.name} (${label})`, id));
+            });
+            if (devices.length > 1) {
+                const total = devices.reduce((sum, d) => sum + (d.total_vram ?? d.vram ?? 0), 0);
+                select.add(new Option(`All GPUs (Multi-GPU Split: ${total.toFixed(1)} GB)`, 'all'));
+            }
+            if (Array.from(select.options).some(o => o.value === current)) select.value = current;
+            document.getElementById('hfGpuSelectGroup').style.display = devices.length > 1 ? 'flex' : 'none';
+        }
         const gpuInfoDiv = document.getElementById('hfGpuInfo');
         const gpuNameText = document.getElementById('hfGpuNameText');
         if (window.backendGpuInfo && gpuInfoDiv && gpuNameText) {
-            const devices = window.backendGpuInfo.devices || [];
-            if (devices.length > 1) {
-                const totVram = Math.round(window.backendGpuInfo.total_system_vram || devices.reduce((acc, d) => acc + (d.vram || 0), 0));
-                gpuNameText.textContent = `${devices.length} GPUs Detected (${totVram} GB Total VRAM: ${devices.map(d => `${d.name.replace('NVIDIA ', '').replace('GeForce ', '')} [${d.vram}GB]`).join(' + ')})`;
-            } else {
-                gpuNameText.textContent = `${window.backendGpuInfo.name} (${window.backendGpuInfo.vram} GB VRAM)`;
-            }
+            const gpu = detectGPU();
+            const memory = Number.isFinite(gpu.vram) ? `${gpu.vram.toFixed(1)} GB VRAM` : 'Memory unavailable';
+            gpuNameText.textContent = `${gpu.name} (${memory})`;
             gpuInfoDiv.style.display = 'flex';
         }
+        evaluateVramEstimate();
+    }
+
+    function changeHfGpuDevice() {
+        localStorage.setItem('llamastudio-discover-gpu', document.getElementById('hfGpuSelect').value);
+        updateGpuUi();
     }
 
 
@@ -4638,8 +4658,9 @@
 
     function switchSettingsTab(tabName) {
         activeSettingsTab = tabName;
-        document.querySelectorAll('.settings-tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.settings-tab-content').forEach(pane => pane.classList.remove('active'));
+        const sidebar = document.getElementById('configSidebar');
+        sidebar.querySelectorAll('.settings-tab-btn').forEach(btn => btn.classList.remove('active'));
+        sidebar.querySelectorAll('.settings-tab-content').forEach(pane => pane.classList.remove('active'));
 
         document.getElementById(`tabBtn-${tabName}`).classList.add('active');
         document.getElementById(`settingsTab-${tabName}`).classList.add('active');
@@ -4689,6 +4710,16 @@
     window.selectedHfModelDetails = null;
 
     let hfSearchTimeout = null;
+    let hfSearchRequest = 0;
+    let hfDetailsRequest = 0;
+
+    function formatHfModelSize(model) {
+        const sizes = Object.values(model.gguf_sizes || {}).filter(size => size > 0);
+        if (!sizes.length) return 'Unknown';
+        const min = (Math.min(...sizes) / (1024 ** 3)).toFixed(1);
+        const max = (Math.max(...sizes) / (1024 ** 3)).toFixed(1);
+        return min === max ? `${min} GB` : `${min}–${max} GB`;
+    }
 
     function debouncedSearchHfModels() {
         if (hfSearchTimeout) {
@@ -4700,6 +4731,8 @@
     }
 
     async function searchHfModels() {
+        clearTimeout(hfSearchTimeout);
+        const request = ++hfSearchRequest;
         const query = document.getElementById('hfSearchInput').value.trim();
 
         const sort = document.getElementById('hfSortSelect').value;
@@ -4709,7 +4742,7 @@
 
         if (intro) intro.style.display = "none";
         if (table) table.style.display = "none";
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin fa-xl" style="color:var(--accent);margin-right:10px;"></i>Searching Hugging Face...</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin fa-xl" style="color:var(--accent);margin-right:10px;"></i>Searching Hugging Face...</td></tr>`;
         table.style.display = "table";
 
         try {
@@ -4718,10 +4751,11 @@
                 { cache: 'no-store' }
             );
             const data = await res.json();
+            if (request !== hfSearchRequest) return;
             const models = data.models || [];
 
             if (models.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);">No models found matching "${escapeHtml(query)}"</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted);">No models found matching "${escapeHtml(query)}"</td></tr>`;
                 return;
             }
 
@@ -4754,7 +4788,8 @@
 
                 return `
                     <tr id="hf-row-${btoa(m.id)}" onclick="selectHfModelRow('${escapeHtml(m.id)}')" class="${isSelected ? 'selected' : ''}">
-                        <td style="font-weight:600;color:var(--text-primary);">${escapeHtml(m.id.split('/').pop())}</td>
+                        <td style="font-weight:600;color:var(--text-primary);overflow-wrap:anywhere;max-width:400px;">${escapeHtml(m.id.split('/').pop())}</td>
+                        <td style="white-space:nowrap;" title="Full GGUF weight sizes across quantizations, excluding vision projectors. Runtime memory is additional.">${formatHfModelSize(m)}</td>
                         <td>${escapeHtml(author)}</td>
                         <td><i class="fa-solid fa-download" style="font-size:11px;color:var(--text-muted);margin-right:4px;"></i>${downloads}</td>
                         <td><i class="fa-regular fa-heart" style="font-size:11px;color:var(--text-muted);margin-right:4px;"></i>${likes}</td>
@@ -4769,11 +4804,13 @@
             }
 
         } catch(e) {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation" style="margin-right:10px;"></i>Search failed: ${escapeHtml(e.message)}</td></tr>`;
+            if (request !== hfSearchRequest) return;
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation" style="margin-right:10px;"></i>Search failed: ${escapeHtml(e.message)}</td></tr>`;
         }
     }
 
     async function selectHfModelRow(repoId) {
+        const request = ++hfDetailsRequest;
         // Highlight row
         document.querySelectorAll('#hfResultsTableBody tr').forEach(r => r.classList.remove('selected'));
         const row = document.getElementById(`hf-row-${btoa(repoId)}`);
@@ -4783,6 +4820,14 @@
         const readmeContent = document.getElementById('hfReadmeContent');
         
         sidebar.style.display = "flex";
+        selectedHfModelDetails = null;
+        document.getElementById('hfSelectedModelName').textContent = repoId.split('/').pop();
+        document.getElementById('hfSelectedModelRepo').textContent = repoId;
+        const quantSelect = document.getElementById('hfQuantSelect');
+        quantSelect.replaceChildren();
+        quantSelect.disabled = true;
+        document.getElementById('hfDownloadBtn').disabled = true;
+        document.getElementById('hfVramEstimator').replaceChildren();
         readmeContent.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="margin-right:8px;"></i>Loading model details and README...`;
 
         try {
@@ -4790,26 +4835,30 @@
                 `/api/models/hf-details?repo_id=${encodeURIComponent(repoId)}`,
                 { cache: 'no-store' }
             );
+            if (request !== hfDetailsRequest) return;
             if (!res.ok) {
-                readmeContent.innerHTML = `<span style="color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation"></i> Failed to retrieve details for ${repoId}</span>`;
+                readmeContent.textContent = `Failed to retrieve details for ${repoId}`;
                 return;
             }
             const data = await res.json();
+            if (request !== hfDetailsRequest) return;
             selectedHfModelDetails = data.details;
 
             document.getElementById('hfSelectedModelName').textContent = repoId.split('/').pop();
             document.getElementById('hfSelectedModelRepo').textContent = repoId;
 
             // Render Markdown readme
-            readmeContent.innerHTML = marked.parse(data.readme);
+            const readme = (data.readme || '').replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
+            readmeContent.innerHTML = marked.parse(readme || 'No README available.');
 
             // Populate quant select
-            const quantSelect = document.getElementById('hfQuantSelect');
             quantSelect.innerHTML = '';
 
             // Find all files ending in .gguf
             const siblings = selectedHfModelDetails.siblings || [];
-            const ggufFiles = siblings.filter(s => s.rfilename && s.rfilename.toLowerCase().endsWith('.gguf'));
+            const modelFiles = selectedHfModelDetails.gguf_files;
+            const ggufFiles = siblings.filter(s => modelFiles ? modelFiles.includes(s.rfilename) :
+                s.rfilename && s.rfilename.toLowerCase().endsWith('.gguf') && !s.rfilename.toLowerCase().includes('mmproj'));
 
             if (ggufFiles.length === 0) {
                 const opt = document.createElement('option');
@@ -4826,6 +4875,7 @@
             }
 
             document.getElementById('hfDownloadBtn').disabled = false;
+            quantSelect.disabled = false;
 
             // Sort GGUF files by name
             ggufFiles.sort((a, b) => a.rfilename.localeCompare(b.rfilename));
@@ -4833,14 +4883,17 @@
             ggufFiles.forEach(f => {
                 const option = document.createElement('option');
                 option.value = f.rfilename;
-                option.textContent = f.rfilename;
+                const size = selectedHfModelDetails.gguf_sizes?.[f.rfilename];
+                option.textContent = size ? `${f.rfilename} (${(size / (1024 ** 3)).toFixed(1)} GB)` : f.rfilename;
                 quantSelect.appendChild(option);
             });
+            quantSelect.value = ggufFiles.find(f => f.rfilename.toLowerCase().includes('q4_k_m'))?.rfilename || ggufFiles[0].rfilename;
 
             // Trigger VRAM evaluation
             evaluateVramEstimate();
 
         } catch(e) {
+            if (request !== hfDetailsRequest) return;
             readmeContent.innerHTML = `<span style="color:var(--status-red);"><i class="fa-solid fa-triangle-exclamation"></i> Error loading details: ${escapeHtml(e.message)}</span>`;
         }
     }
@@ -4848,54 +4901,31 @@
     function detectGPU() {
         if (window.backendGpuInfo) {
             const devices = window.backendGpuInfo.devices || [];
-            if (devices.length > 1) {
-                const totalVram = Math.round(window.backendGpuInfo.total_system_vram || devices.reduce((acc, d) => acc + (d.vram || 0), 0));
+            const selected = document.getElementById('hfGpuSelect')?.value;
+            if (devices.length > 1 && selected === 'all') {
+                if (devices.some(d => ('total_vram' in d ? d.total_vram : d.vram) == null)) {
+                    return {name: 'Multi-GPU', vram: null};
+                }
+                const totalVram = devices.reduce((acc, d) => acc + (d.total_vram ?? d.vram ?? 0), 0);
                 return {
                     name: `${devices.length}x Multi-GPU (${totalVram}GB VRAM)`,
                     vram: totalVram
                 };
             }
-            return window.backendGpuInfo;
+            if (devices.length) {
+                const device = devices.find(d => String(d.id ?? d.index) === selected) || devices[0];
+                return {name: device.name, vram: 'total_vram' in device ? device.total_vram : device.vram};
+            }
+            const info = window.backendGpuInfo;
+            return {name: info.name, vram: 'total_vram' in info ? info.total_vram : info.vram};
         }
-        if (navigator.gpu) {
-            try {
-                const adapter = navigator.gpu;
-                const info = adapter.requestAdapterInfo();
-                const vramGB = adapter.info?.vram;
-                let name = info?.device || info?.adapter || info?.renderer || '';
-                if (name && !name.match(/^(intel|amd|mobile)/i)) {
-                    return { name, vram: vramGB || 8 };
-                }
-                if (vramGB) {
-                    return { name: name || 'GPU', vram: vramGB };
-                }
-            } catch(e) { /* fall through */ }
-        }
-        const r = navigator.webgl?.renderer || '';
-        const known = {
-            'RTX 5090': 32, 'RTX 5080': 16, 'RTX 5070 Ti': 16, 'RTX 5070': 12,
-            'RTX 4090': 24, 'RTX 4080': 16, 'RTX 4070 Ti': 12, 'RTX 4070': 12,
-            'RTX 4060': 8, 'RTX 3090': 24, 'RTX 3080 Ti': 12, 'RTX 3080': 10,
-            'RTX 3070': 8, 'RTX 3060': 12, 'RTX 3060 Ti': 8,
-            'GTX 1660': 6, 'GTX 1080': 8, 'GTX 1070': 4,
-            'RX 7900': 24, 'RX 7800': 16, 'RX 7700': 12, 'RX 6800': 16,
-            'M4': 16, 'M2': 8, 'M1': 8,
-        };
-        for (const [g, v] of Object.entries(known)) {
-            if (r.includes(g)) return { name: g, vram: v };
-        }
-        const mem = navigator.deviceMemory || 8;
-        const isDiscrete = r.match(/(nvidia|amd|radeon|geforce|rx )/i);
-        if (mem >= 32) return { name: 'High-End GPU', vram: 24 };
-        if (mem >= 16) return { name: isDiscrete ? 'Discrete GPU' : 'GPU', vram: 12 };
-        if (mem >= 8) return { name: isDiscrete ? 'Discrete GPU' : 'GPU', vram: 8 };
-        return { name: 'GPU', vram: 6 };
+        return {name: 'GPU unavailable', vram: null};
     }
 
     function evaluateVramEstimate() {
-        const repo = document.getElementById('hfSelectedModelRepo').textContent;
-        const file = document.getElementById('hfQuantSelect').value;
         const badgeContainer = document.getElementById('hfVramEstimator');
+        if (!badgeContainer) return;
+        const file = document.getElementById('hfQuantSelect').value;
 
         if (!selectedHfModelDetails || !file) {
             badgeContainer.innerHTML = '';
@@ -4903,30 +4933,23 @@
         }
 
         let sizeGb = 0.0;
-        const vram = detectGPU().vram;
-        const gpuName = detectGPU().name;
+        const gpu = detectGPU();
+        const vram = gpu.vram;
+        const gpuName = escapeHtml(gpu.name);
+        if (!Number.isFinite(vram) || vram <= 0) {
+            badgeContainer.textContent = 'GPU memory unavailable; memory fit is unknown.';
+            return;
+        }
         
         const siblings = selectedHfModelDetails.siblings || [];
         const found = siblings.find(s => s.rfilename === file);
-        if (found && found.size) {
-            sizeGb = found.size / (1024 * 1024 * 1024);
+        const size = selectedHfModelDetails.gguf_sizes?.[file] ||
+            (!/-\d{5}-of-\d{5}\.gguf$/i.test(file) && (found?.size || found?.lfs?.size));
+        if (size) {
+            sizeGb = size / (1024 * 1024 * 1024);
         } else {
-            const lowerFile = file.toLowerCase();
-            const paramMatch = repo.match(/(\d+b|\d+\.?\d+b)/i) || file.match(/(\d+b|\d+\.?\d+b)/i);
-            let params = 8;
-            if (paramMatch) {
-                params = parseFloat(paramMatch[0]);
-            }
-            
-            if (lowerFile.includes('q4_k_m') || lowerFile.includes('q4_0') || lowerFile.includes('q4_k_s')) {
-                sizeGb = params * 0.55;
-            } else if (lowerFile.includes('q8_0') || lowerFile.includes('q8_k')) {
-                sizeGb = params * 0.95;
-            } else if (lowerFile.includes('q5_k_m') || lowerFile.includes('q5_0')) {
-                sizeGb = params * 0.65;
-            } else {
-                sizeGb = params * 0.50;
-            }
+            badgeContainer.textContent = 'File size unavailable; memory fit is unknown.';
+            return;
         }
 
         const sizeFormatted = sizeGb.toFixed(1) + " GB";
@@ -4935,7 +4958,7 @@
             badgeContainer.innerHTML = `
                 <div style="background: rgba(46, 204, 113, 0.12); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.25); padding: 10px 12px; border-radius: 8px; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center;">
                     <i class="fa-solid fa-circle-check" style="font-size: 14px;"></i>
-                    <span>Fits Fully on ${gpuName} (${sizeFormatted} GGUF)</span>
+                    <span>Estimated fit on ${gpuName} (${sizeFormatted} GGUF)</span>
                 </div>
             `;
         } else if (sizeGb < vram) {
@@ -4953,6 +4976,7 @@
                 </div>
             `;
         }
+        badgeContainer.insertAdjacentHTML('beforeend', '<small style="color:var(--text-muted);">Estimate includes a 4 GB runtime allowance; context length affects memory use.</small>');
     }
 
     async function triggerModelDownload() {

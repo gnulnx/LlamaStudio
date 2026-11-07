@@ -10,7 +10,17 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import httpx
-from textual.widgets import Button, DataTable, Input, Markdown, ProgressBar, Select, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Input,
+    Markdown,
+    ProgressBar,
+    Select,
+    Static,
+    TabbedContent,
+)
+from textual.widgets.select import InvalidSelectValueError
 
 from app.tui.application import StudioApp
 from app.tui.chat import ChatView, MessageCard
@@ -113,10 +123,14 @@ class Backend:
                     "id": repo,
                     "downloads": 42,
                     "likes": 12,
+                    "gguf_sizes": {"tiny-Q4_K_M.gguf": 1024**3},
+                    "gguf_files": ["tiny-Q4_K_M.gguf", "tiny-00001-of-00002.gguf"],
                     "siblings": [
                         {"rfilename": "tiny-Q4_K_M.gguf", "size": 1024**3},
                         {"rfilename": "tiny-00001-of-00002.gguf", "size": 1024**3},
                         {"rfilename": "README.md", "size": 100},
+                        {"rfilename": "mmproj.gguf", "size": 1024},
+                        {"rfilename": "imatrix.gguf", "size": 100},
                     ],
                 },
                 "readme": f"---\nlicense: apache-2.0\n---\n# {repo}\n\nA **real widget** model card.",
@@ -239,6 +253,56 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             await self.settle(pilot)
             self.assertEqual(self.app.current_view, "logs")
             self.assertEqual(self.app.query_one("#logs").last_lines[0], "INFO Server ready\n")
+
+    async def test_discovery_readme_and_metadata_survive_model_settings_navigation(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            view = self.app.query_one(DiscoverView)
+            markdown = view.query_one("#hub-readme", Markdown)
+            self.assertEqual(
+                markdown.source,
+                "# org/Tiny-GGUF\n\nA **real widget** model card.",
+            )
+            self.assertNotIn("license:", markdown.source)
+            self.assertEqual(view.details["gguf_sizes"], {"tiny-Q4_K_M.gguf": 1024**3})
+            self.assertEqual(view.query_one("#hub-quant", Select).value, "tiny-Q4_K_M.gguf")
+            for auxiliary in ("mmproj.gguf", "imatrix.gguf"):
+                with self.subTest(auxiliary=auxiliary), self.assertRaises(InvalidSelectValueError):
+                    view.query_one("#hub-quant", Select).value = auxiliary
+            tabs = view.query_one(TabbedContent)
+            tabs.active = "hub-details-tab"
+            await pilot.pause()
+            self.assertIn(
+                "Repository: org/Tiny-GGUF", str(view.query_one("#hub-metadata").render())
+            )
+            self.app.action_view("models")
+            await self.settle(pilot)
+            self.app.action_view("discover")
+            await self.settle(pilot)
+            tabs.active = "hub-readme-tab"
+            await pilot.pause()
+            self.assertTrue(markdown.is_on_screen)
+            self.assertIn("A **real widget** model card.", markdown.source)
+            view.select_repo("org/Second-GGUF")
+            await self.settle(pilot)
+            self.assertIn("# org/Second-GGUF", markdown.source)
+            self.assertNotIn("Tiny-GGUF", markdown.source)
+
+    async def test_discovery_readme_failure_allows_retrying_the_same_repository(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            view = self.app.query_one(DiscoverView)
+            with (
+                patch.object(view.client, "get", side_effect=httpx.ConnectError("offline")),
+                self.assertRaises(httpx.ConnectError),
+            ):
+                await view.load_details("org/Tiny-GGUF")
+            self.assertIn("Could not load this model card", view.query_one(Markdown).source)
+            self.assertEqual(view.repo_id, "")
+            view.select_repo("org/Tiny-GGUF")
+            await self.settle(pilot)
+            self.assertIn("# org/Tiny-GGUF", view.query_one(Markdown).source)
+            self.assertFalse(view.query_one("#hub-download", Button).disabled)
 
     async def test_dropdown_options_are_visible_and_selectable(self):
         async with self.app.run_test(size=(190, 52)) as pilot:

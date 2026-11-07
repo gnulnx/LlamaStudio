@@ -15,6 +15,7 @@ import contextlib
 
 from app.downloader import downloader
 from app.model_manager import (
+    _gguf_model_sizes,
     get_huggingface_model_details,
     get_huggingface_model_readme,
     search_huggingface_models,
@@ -38,13 +39,54 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
                 "tags": ["gguf", "text-generation"],
             }
         ]
-        mock_get.return_value = mock_response
+        mock_details = MagicMock()
+        mock_details.status_code = 200
+        mock_details.json.return_value = {
+            "siblings": [
+                {"rfilename": "model-Q4_K_M.gguf", "size": 5 * 1024**3},
+                {"rfilename": "mmproj.gguf", "size": 1024**3},
+            ]
+        }
+        mock_get.side_effect = [mock_response, mock_details]
 
         results = await search_huggingface_models("qwen", "downloads")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "Qwen/Qwen2.5-7B-Instruct-GGUF")
         self.assertEqual(results[0]["author"], "Qwen")
-        mock_get.assert_called_once()
+        self.assertEqual(results[0]["gguf_sizes"], {"model-Q4_K_M.gguf": 5 * 1024**3})
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"blobs": "true"})
+
+    @patch("httpx.AsyncClient.get")
+    async def test_search_keeps_results_when_size_lookup_fails(self, mock_get):
+        response = MagicMock(status_code=200)
+        response.json.return_value = [{"id": "org/model"}]
+        mock_get.side_effect = [response, OSError("Hub unavailable")]
+        self.assertEqual(
+            await search_huggingface_models("model"),
+            [{"id": "org/model", "gguf_sizes": {}}],
+        )
+
+    @patch("httpx.AsyncClient.get")
+    async def test_search_bounds_concurrent_size_lookups(self, mock_get):
+        active = peak = 0
+
+        async def get(url, **kwargs):
+            nonlocal active, peak
+            response = MagicMock(status_code=200)
+            if url.endswith("/api/models"):
+                response.json.return_value = [{"id": f"org/model-{i}"} for i in range(12)]
+            else:
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0.01)
+                active -= 1
+                response.json.return_value = {"siblings": []}
+            return response
+
+        mock_get.side_effect = get
+        self.assertEqual(len(await search_huggingface_models("model")), 12)
+        self.assertEqual(peak, 5)
 
     @patch("httpx.AsyncClient.get")
     async def test_search_huggingface_models_failure(self, mock_get):
@@ -62,7 +104,7 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "id": "google/gemma-2-9b-it-GGUF",
-            "siblings": [{"rpath": "gemma-2-9b-it.Q4_K_M.gguf"}],
+            "siblings": [{"rfilename": "gemma-2-9b-it.Q4_K_M.gguf", "size": 5 * 1024**3}],
         }
         mock_get.return_value = mock_response
 
@@ -70,6 +112,8 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(details)
         self.assertEqual(details["id"], "google/gemma-2-9b-it-GGUF")
         self.assertEqual(len(details["siblings"]), 1)
+        self.assertEqual(details["gguf_sizes"], {"gemma-2-9b-it.Q4_K_M.gguf": 5 * 1024**3})
+        self.assertEqual(details["gguf_files"], ["gemma-2-9b-it.Q4_K_M.gguf"])
         self.assertEqual(mock_get.call_args.kwargs["params"], {"blobs": "true"})
 
     @patch("httpx.AsyncClient.get")
@@ -81,6 +125,59 @@ class TestModelManagerHF(unittest.IsolatedAsyncioTestCase):
 
         readme = await get_huggingface_model_readme("google/gemma-2-9b-it-GGUF")
         self.assertIn("Gemma 2", readme)
+
+
+class TestGGUFModelSizes(unittest.TestCase):
+    def test_sizes_exclude_projectors_and_non_models_and_use_lfs_fallback(self):
+        self.assertEqual(
+            _gguf_model_sizes([
+                {"rfilename": "model-Q4.gguf", "size": 5 * 1024**3},
+                {"rfilename": "model-Q8.GGUF", "lfs": {"size": 9 * 1024**3}},
+                {"rfilename": "mmproj-BF16.gguf", "size": 1024**3},
+                {"rfilename": "README.md", "size": 100},
+                {"rfilename": "unknown.gguf"},
+                {"rfilename": "empty.gguf", "size": 0},
+                {"rfilename": "imatrix_unsloth.gguf", "size": 1000},
+                {"rfilename": "MTP/mtp-model-Q4_0.gguf", "size": 1024**3},
+                {"rfilename": "model-FastMTP-32K.gguf", "size": 1024**3},
+                {"rfilename": "model-draft-Q4_0.gguf", "size": 1024**3},
+            ]),
+            {"model-Q4.gguf": 5 * 1024**3, "model-Q8.GGUF": 9 * 1024**3},
+        )
+
+    def test_main_model_names_can_contain_mtp_and_imatrix(self):
+        name = "model-MTP-IMATRIX-MAX-Q4_K_M.gguf"
+        self.assertEqual(_gguf_model_sizes([{"rfilename": name, "size": 42}]), {name: 42})
+
+    def test_shards_use_complete_model_size_and_stay_separate_by_directory(self):
+        siblings = [
+            {"rfilename": "Q8/model-00001-of-00002.gguf", "size": 8 * 1024**3},
+            {"rfilename": "Q8/model-00002-of-00002.gguf", "size": 2 * 1024**3},
+            {"rfilename": "Q4/model-00001-of-00002.gguf", "size": 3 * 1024**3},
+            {"rfilename": "Q4/model-00002-of-00002.gguf", "size": 2 * 1024**3},
+        ]
+        sizes = _gguf_model_sizes(siblings)
+        for sibling in siblings:
+            name = sibling["rfilename"]
+            self.assertEqual(sizes[name], (10 if name.startswith("Q8/") else 5) * 1024**3)
+
+    def test_incomplete_or_unsized_shards_are_unknown(self):
+        for parts in ([1], [0, 1], [1, 3]):
+            with self.subTest(parts=parts):
+                self.assertEqual(
+                    _gguf_model_sizes([
+                        {"rfilename": f"model-{part:05}-of-00002.gguf", "size": 1024**3}
+                        for part in parts
+                    ]),
+                    {},
+                )
+        self.assertEqual(
+            _gguf_model_sizes([
+                {"rfilename": "model-00001-of-00002.gguf", "size": 1024**3},
+                {"rfilename": "model-00002-of-00002.gguf"},
+            ]),
+            {},
+        )
 
 
 class TestModelDownloader(unittest.IsolatedAsyncioTestCase):
