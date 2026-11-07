@@ -873,10 +873,10 @@ class ChatManager:
                             }
                             yield f"data: {json.dumps(tool_call_delta)}\n\n"
 
-                    # Match <|tool_call>call:tool_name(args)<tool_call|>
+                    # Gemma inline calls and leaked Hermes ChatML call frames.
                     matches = list(
                         re.finditer(
-                            r"<\|tool_call>call:(\w+)\((.*?)\)<tool_call\|>",
+                            r"(?:<\|tool_call>call:|<\|im_start\|>call:)(\w+)\((.*?)\)(?:<tool_call\|>|\s*<\|im_end\|>)",
                             assistant_text,
                             re.DOTALL,
                         )
@@ -887,9 +887,9 @@ class ChatManager:
                             args_str = m.group(2)
                             args_dict = parse_args_str(args_str)
 
-                            # Map parameters (Gemma "filename" -> "file_path")
-                            if "filename" in args_dict and "file_path" not in args_dict:
-                                args_dict["file_path"] = args_dict.pop("filename")
+                            for alias in ("filename", "path"):
+                                if alias in args_dict and "file_path" not in args_dict:
+                                    args_dict["file_path"] = args_dict.pop(alias)
 
                             tc_id = f"call_{uuid.uuid4().hex[:8]}"
                             tool_calls_accumulated.append({
@@ -914,6 +914,19 @@ class ChatManager:
                                 }
                             }
                             yield f"data: {json.dumps(tool_call_delta)}\n\n"
+
+                        # A generated response frame is not a real tool result.
+                        assistant_text = re.sub(
+                            r"<\|im_start\|>response:.*?(?:<\|im_end\|>|$)",
+                            "",
+                            assistant_text,
+                            flags=re.DOTALL,
+                        )
+                        assistant_text = re.sub(
+                            r"<\|im_start\|>assistant\s*|<\|im_end\|>|<\|thought\s*",
+                            "",
+                            assistant_text,
+                        ).strip()
 
                 # Post-processing assistant output
                 if tool_calls_accumulated:

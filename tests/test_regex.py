@@ -12,11 +12,18 @@ import pytest
 from app.chat import chat
 
 
-@pytest.mark.parametrize("syntax", ["gemma", "deepseek", "deepseek_fullwidth"])
+@pytest.mark.parametrize("syntax", ["hermes", "gemma", "deepseek", "deepseek_fullwidth"])
 def test_text_tool_call_executes_write_and_returns_result_to_model(tmp_path, monkeypatch, syntax):
     expected = "The real chat pipeline wrote this file."
     arguments = {"file_path": "hello.txt", "content": expected}
-    if syntax == "gemma":
+    if syntax == "hermes":
+        tool_text = (
+            "<|thought\n"
+            f"<|im_start|>call:write_file(path='hello.txt', content={expected!r})\n<|im_end|>\n"
+            '<|im_start|>response:write_file\n{"status":"fabricated"}<|im_end|>\n'
+            "<|im_start|>assistant\nFile written.<|im_end|>"
+        )
+    elif syntax == "gemma":
         tool_text = (
             f"<|tool_call>call:write_file(filename='hello.txt', content={expected!r})<tool_call|>"
         )
@@ -59,7 +66,11 @@ def test_text_tool_call_executes_write_and_returns_result_to_model(tmp_path, mon
     results = [message for message in requests[1]["messages"] if message["role"] == "tool"]
     assert len(results) == 1
     assert "Successfully wrote" in results[0]["content"]
-    assert any('"type": "tool_exec_end"' in event for event in events)
+    assert sum('"type": "tool_exec_end"' in event for event in events) == 1
+    if syntax == "hermes":
+        first_reply = next(m for m in chat.get_active().messages if m.tool_calls)
+        assert first_reply.content == "File written."
+        assert "fabricated" not in json.dumps(requests[1])
     assert chat.get_active().messages[-1].content == "File created successfully."
     saved = json.loads((tmp_path / "conversation.json").read_text())
     assert (
