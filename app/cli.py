@@ -741,9 +741,8 @@ def load(model, reload, **kwargs):
         if not wait_for_server_ready(20):
             console.print("[bold red]Failed to reload and start FastAPI server.[/bold red]")
             return
-    elif not is_server_online():
-        if not start_server_background():
-            return
+    elif not is_server_online() and not start_server_background():
+        return
 
     # 3. Compile custom settings parameters. Start with the UI profile so CLI loads
     # do not discard tuned context/KV/cache settings, then apply explicit overrides.
@@ -782,6 +781,7 @@ def load(model, reload, **kwargs):
         settings_payload["gpu_layers"] = 0
 
     # 4. Trigger model load API
+    load_failed = False
     with Progress(
         SpinnerColumn(),
         TextColumn("[cyan]{task.description}"),
@@ -805,11 +805,15 @@ def load(model, reload, **kwargs):
                     )
                 )
             else:
+                load_failed = True
                 progress.update(task, description="[red]Loading failed.")
                 console.print(f"[bold red]Server returned error: {resp.text}[/bold red]")
         except Exception as e:
+            load_failed = True
             progress.update(task, description="[red]Connection error.")
             console.print(f"[bold red]Failed to load model: {e}[/bold red]")
+    if load_failed:
+        raise click.ClickException("Model load failed.")
 
 
 @cli.command()
@@ -857,14 +861,14 @@ def oneshot(prompt, model, **kwargs):
             console.print(
                 f"[bold red]Failed to auto-load model '{model}': {resp.output}[/bold red]"
             )
-            return
+            raise click.exceptions.Exit(1)
 
     # 2. Verify server is online and has a running model
     if not is_server_online():
         console.print(
             "[bold red]Error: LlamaStudio API server is offline. Load a model first using 'lls load <model>'.[/bold red]"
         )
-        return
+        raise click.exceptions.Exit(1)
 
     try:
         status_data = httpx.get(f"{API_BASE_URL}/api/server/status").json()
@@ -872,10 +876,12 @@ def oneshot(prompt, model, **kwargs):
             console.print(
                 "[bold red]Error: No model is currently loaded in the server. Run 'lls load <model>' first.[/bold red]"
             )
-            return
+            raise click.exceptions.Exit(1)
+    except click.exceptions.Exit:
+        raise
     except Exception as e:
         console.print(f"[bold red]Failed to contact LlamaStudio server: {e}[/bold red]")
-        return
+        raise click.exceptions.Exit(1) from e
 
     target_workspace = Path(kwargs.get("workspace_path") or Path.cwd()).resolve()
 
@@ -899,7 +905,7 @@ def oneshot(prompt, model, **kwargs):
                         console.print(
                             f"[bold red]Could not attach '{image_path}': {detail}[/bold red]"
                         )
-                        return
+                        raise click.exceptions.Exit(1)
                     image_payloads.extend(result.images)
 
             if kwargs.get("audio_path"):
@@ -908,7 +914,7 @@ def oneshot(prompt, model, **kwargs):
                 if not isinstance(result, ToolResult) or not result.audios:
                     detail = result if isinstance(result, str) else "Unsupported audio."
                     console.print(f"[bold red]Could not attach '{audio_path}': {detail}[/bold red]")
-                    return
+                    raise click.exceptions.Exit(1)
                 audio_payloads.extend(result.audios)
         finally:
             reset_current_workspace_root(ws_token)
@@ -941,6 +947,8 @@ def oneshot(prompt, model, **kwargs):
     console.print(
         "\n[bold cyan]─── LlamaStudio Chat Stream ──────────────────────────[/bold cyan]\n"
     )
+    stream_failed = False
+    stream_completed = False
     try:
         with httpx.stream(
             "POST", f"{API_BASE_URL}/api/chat/send", json=payload, timeout=300.0
@@ -949,7 +957,7 @@ def oneshot(prompt, model, **kwargs):
                 console.print(f"[bold red]Error from server: {r.status_code}[/bold red]")
                 with contextlib.suppress(Exception):
                     console.print(r.read().decode())
-                return
+                raise click.ClickException(f"Model request failed with HTTP {r.status_code}.")
 
             in_reasoning = False
             for line in r.iter_lines():
@@ -959,6 +967,7 @@ def oneshot(prompt, model, **kwargs):
 
                 # Check for stream completion
                 if data_str.strip() == "[DONE]":
+                    stream_completed = True
                     break
 
                 try:
@@ -966,6 +975,7 @@ def oneshot(prompt, model, **kwargs):
 
                     # Handle error event
                     if data.get("error"):
+                        stream_failed = True
                         error = data["error"]
                         if isinstance(error, dict):
                             title = error.get("title") or "Model request failed"
@@ -1012,6 +1022,7 @@ def oneshot(prompt, model, **kwargs):
                         continue
 
                     if data.get("type") == "vision_error":
+                        stream_failed = True
                         console.print(f"\n[bold red]Vision Error: {data.get('message')}[/bold red]")
                         recovery = data.get("recovery") or {}
                         if recovery.get("status") == "downloadable":
@@ -1021,6 +1032,7 @@ def oneshot(prompt, model, **kwargs):
                         continue
 
                     if data.get("type") == "audio_error":
+                        stream_failed = True
                         console.print(f"\n[bold red]Audio Error: {data.get('message')}[/bold red]")
                         continue
 
@@ -1063,14 +1075,21 @@ def oneshot(prompt, model, **kwargs):
                         continue
 
                     if data.get("type") == "end":
+                        stream_completed = True
                         break
                 except Exception:
                     continue
+        if stream_failed:
+            raise click.ClickException("The model request failed.")
+        if not stream_completed:
+            raise click.ClickException("The response stream ended before completion.")
         console.print(
             "\n\n[bold cyan]──────────────────────────────────────────────────────[/bold cyan]\n"
         )
+    except click.ClickException:
+        raise
     except Exception as e:
-        console.print(f"\n[bold red]Network/Inference failure: {e}[/bold red]")
+        raise click.ClickException(f"Network/Inference failure: {e}") from e
 
 
 @cli.group()

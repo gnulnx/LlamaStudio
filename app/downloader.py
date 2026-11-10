@@ -145,6 +145,17 @@ class ModelDownloader:
         self._active_task = None
         self._cancel_event = None
 
+    async def wait_for_completion(self) -> dict[str, Any]:
+        """Wait for this transfer without cancelling it if an HTTP client leaves."""
+        task = self._active_task
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if self.status != "cancelled":
+                    raise
+        return self.get_progress()
+
     async def _download_loop(
         self,
         repo_id: str,

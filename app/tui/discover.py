@@ -45,6 +45,15 @@ def capabilities(model: dict[str, Any], palette: Palette) -> Text:
     return labels if labels else Text("Text", style=palette.muted)
 
 
+def model_size_label(model: dict[str, Any]) -> str:
+    """Use the same complete GGUF weight sizes as the web Discover table."""
+    sizes = [size for size in (model.get("gguf_sizes") or {}).values() if size > 0]
+    if not sizes:
+        return "Unknown"
+    smallest, largest = (f"{value / 1024**3:.1f}" for value in (min(sizes), max(sizes)))
+    return f"{smallest} GB" if smallest == largest else f"{smallest}\u2013{largest} GB"
+
+
 class DiscoverView(StudioView):
     def __init__(self):
         super().__init__(id="discover")
@@ -54,6 +63,7 @@ class DiscoverView(StudioView):
         self.files: dict[str, dict[str, Any]] = {}
         self.loaded = False
         self.downloading = False
+        self._gpu_options: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="master panel"):
@@ -79,6 +89,7 @@ class DiscoverView(StudioView):
             yield Link("huggingface.co", url="https://huggingface.co", id="hub-link")
             yield Label("QUANTIZATION / GGUF", classes="eyebrow")
             yield Select([], prompt="Select a GGUF file", id="hub-quant", disabled=True)
+            yield Select([], prompt="GPU for memory estimate", id="hub-gpu-device", disabled=True)
             yield Static("Reading GPU information...", id="hub-gpu", classes="info-card")
             yield Static(
                 "Select a file to estimate memory usage.", id="hub-fit", classes="info-card"
@@ -144,24 +155,33 @@ class DiscoverView(StudioView):
         width = self.app.size.width
         available = table.size.width or (width - 8 if width < 110 else width - 71)
         extra = (18 if width >= 155 else 0) + (30 if width >= 185 else 0)
-        table.add_column("Model", width=max(16, min(52, available - 25 - extra)))
+        show_stats = available >= 64
+        table.add_column(
+            "Model", width=max(16, min(52, available - 20 - extra - (22 if show_stats else 0)))
+        )
+        table.add_column("Size (GB)", width=16, key="size")
         if width >= 155:
             table.add_column("Author", width=16)
-        table.add_column("Downloads", width=11)
-        table.add_column("Likes", width=7)
+        if show_stats:
+            table.add_column("Downloads", width=11)
+            table.add_column("Likes", width=7)
         if width >= 185:
-            table.add_column("Capabilities", width=28)
+            table.add_column("Capabilities", width=28, key="capabilities")
         row_height = 3 if self.app.size.height >= 35 else 1
         for model in self.models:
             repo = model["id"]
-            row: list[Any] = [Text(repo.split("/")[-1], overflow="ellipsis", no_wrap=True)]
+            row: list[Any] = [
+                Text(repo.split("/")[-1], overflow="ellipsis", no_wrap=True),
+                model_size_label(model),
+            ]
             if width >= 155:
                 row.append(
                     Text(
                         model.get("author") or repo.split("/")[0], overflow="ellipsis", no_wrap=True
                     )
                 )
-            row.extend([f"{model.get('downloads', 0):,}", f"{model.get('likes', 0):,}"])
+            if show_stats:
+                row.extend([f"{model.get('downloads', 0):,}", f"{model.get('likes', 0):,}"])
             if width >= 185:
                 row.append(capabilities(model, self.app.palette))
             table.add_row(
@@ -174,12 +194,13 @@ class DiscoverView(StudioView):
 
     def refresh_palette(self) -> None:
         table = self.query_one("#hub-table", DataTable)
-        if len(table.columns) < 5:
+        if "capabilities" not in table.columns:
             return  # The capabilities column is hidden in smaller terminals.
         for model in self.models:
             if model["id"] in table.rows:
-                table.update_cell_at(
-                    (table.get_row_index(model["id"]), 4),
+                table.update_cell(
+                    model["id"],
+                    "capabilities",
                     Align(
                         capabilities(model, self.app.palette),
                         vertical="middle",
@@ -229,7 +250,11 @@ class DiscoverView(StudioView):
         self.details = data.get("details") or {}
         siblings = self.details.get("siblings") or []
         self.files = {file["rfilename"]: file for file in siblings if file.get("rfilename")}
-        names = sorted(name for name in self.files if name.lower().endswith(".gguf"))
+        names = sorted(
+            self.details.get("gguf_files")
+            if "gguf_files" in self.details
+            else (name for name in self.files if name.lower().endswith(".gguf"))
+        )
         quant = self.query_one("#hub-quant", Select)
         quant.set_options([(Text(name), name) for name in names])
         quant.disabled = not names
@@ -260,23 +285,48 @@ class DiscoverView(StudioView):
         self.update_memory()
 
     @on(Select.Changed, "#hub-quant")
+    @on(Select.Changed, "#hub-gpu-device")
     def quant_changed(self) -> None:
         self.update_memory()
 
     def update_memory(self) -> None:
         gpu = self.app.gpu
         devices = gpu.get("devices", [])
+        targets = {
+            str(device.get("id", device.get("index", index))): device
+            for index, device in enumerate(devices)
+        }
+        select = self.query_one("#hub-gpu-device", Select)
+        options = [(f"GPU {key}: {device['name']}", key) for key, device in targets.items()]
         if len(devices) > 1:
-            tot_sys = gpu.get("total_system_vram")
-            memory = round(tot_sys) if tot_sys else sum(d.get("vram", 0) for d in devices)
-            card_text = f"{len(devices)} GPUs Detected\nTotal VRAM: {memory} GiB across devices"
+            options.append(("All GPUs (Multi-GPU Split)", "all"))
+        if options != self._gpu_options:
+            current = select.value
+            self._gpu_options = options
+            select.set_options(options)
+            values = {value for _, value in options}
+            select.value = current if current in values else next(iter(targets), Select.BLANK)
+        select.display = len(devices) > 1
+        select.disabled = len(devices) < 2
+        if len(devices) > 1 and select.value == "all":
+            capacities = [device.get("total_vram", device.get("vram")) for device in devices]
+            memory = sum(capacities) if all(value is not None for value in capacities) else None
+            gpu_name = f"{len(devices)} GPUs (explicit multi-GPU split)"
         else:
-            memory = gpu.get("vram", 0)
-            card_text = f"{gpu.get('name', 'GPU unavailable')}\nReported memory: {memory} GiB"
+            device = targets.get(str(select.value), next(iter(targets.values()), gpu))
+            memory = device.get("total_vram", device.get("vram"))
+            gpu_name = device.get("name", "GPU unavailable")
+        capacity = f"{memory:.1f} GiB" if memory else "Unknown"
+        card_text = f"{gpu_name}\nReported memory: {capacity}"
         self.query_one("#hub-gpu", Static).update(Text(card_text))
         name = str(self.query_one("#hub-quant", Select).value)
         file = self.files.get(name, {})
-        size = file.get("size") or (file.get("lfs") or {}).get("size") or 0
+        size = (
+            self.details.get("gguf_sizes", {}).get(name)
+            or file.get("size")
+            or (file.get("lfs") or {}).get("size")
+            or 0
+        )
         split = bool(re.search(r"-\d{5}-of-\d{5}\.gguf$", name, re.I))
         text = f"Weights: {size_label(size)}"
         if split:

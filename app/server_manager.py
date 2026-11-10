@@ -44,7 +44,7 @@ class ServerManager:
     def is_running(self) -> bool:
         # Check if port is in use and process is active (if we started it)
         port_active = self._port_in_use()
-        if not port_active and self._process is not None:
+        if self._process is not None and self._process.poll() is not None:
             # Process crashed or stopped
             self._process = None
             self._current_model = None

@@ -90,3 +90,24 @@ def test_load_reports_unowned_port_without_starting_or_stopping_processes(tmp_pa
         assert "owned by another process" in manager.last_error
         spawn.assert_not_called()
         eject.assert_not_called()
+
+
+def test_status_during_startup_retains_ownership_until_the_process_exits():
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    manager = ServerManager()
+    manager._process = process
+    manager._current_model = "loading.gguf"
+    manager._is_loading = True
+    try:
+        status = manager.get_status()
+        assert not status["running"]
+        assert status["is_loading"]
+        assert status["current_model"] == "loading.gguf"
+        assert manager._process is process
+        assert process.poll() is None
+        assert manager.eject_model()
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)

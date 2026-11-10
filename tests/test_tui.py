@@ -10,7 +10,17 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import httpx
-from textual.widgets import Button, DataTable, Input, Markdown, ProgressBar, Select, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Input,
+    Markdown,
+    ProgressBar,
+    Select,
+    Static,
+    TabbedContent,
+)
+from textual.widgets.select import InvalidSelectValueError
 
 from app.tui.application import StudioApp
 from app.tui.chat import ChatView, MessageCard
@@ -102,6 +112,10 @@ class Backend:
                         "likes": 42,
                         "downloads": 10000,
                         "tags": ["tools", "reasoning"],
+                        "gguf_sizes": {
+                            "tiny-Q4_K_M.gguf": 1024**3,
+                            "tiny-Q8.gguf": 2 * 1024**3,
+                        },
                     },
                     {"id": "org/Second-GGUF", "likes": 12, "downloads": 42},
                 ]
@@ -113,10 +127,14 @@ class Backend:
                     "id": repo,
                     "downloads": 42,
                     "likes": 12,
+                    "gguf_sizes": {"tiny-Q4_K_M.gguf": 1024**3},
+                    "gguf_files": ["tiny-Q4_K_M.gguf", "tiny-00001-of-00002.gguf"],
                     "siblings": [
                         {"rfilename": "tiny-Q4_K_M.gguf", "size": 1024**3},
                         {"rfilename": "tiny-00001-of-00002.gguf", "size": 1024**3},
                         {"rfilename": "README.md", "size": 100},
+                        {"rfilename": "mmproj.gguf", "size": 1024},
+                        {"rfilename": "imatrix.gguf", "size": 100},
                     ],
                 },
                 "readme": f"---\nlicense: apache-2.0\n---\n# {repo}\n\nA **real widget** model card.",
@@ -240,6 +258,104 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.app.current_view, "logs")
             self.assertEqual(self.app.query_one("#logs").last_lines[0], "INFO Server ready\n")
 
+    async def test_discovery_readme_and_metadata_survive_model_settings_navigation(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            view = self.app.query_one(DiscoverView)
+            markdown = view.query_one("#hub-readme", Markdown)
+            self.assertEqual(
+                markdown.source,
+                "# org/Tiny-GGUF\n\nA **real widget** model card.",
+            )
+            self.assertNotIn("license:", markdown.source)
+            self.assertEqual(view.details["gguf_sizes"], {"tiny-Q4_K_M.gguf": 1024**3})
+            self.assertEqual(view.query_one("#hub-quant", Select).value, "tiny-Q4_K_M.gguf")
+            for auxiliary in ("mmproj.gguf", "imatrix.gguf"):
+                with self.subTest(auxiliary=auxiliary), self.assertRaises(InvalidSelectValueError):
+                    view.query_one("#hub-quant", Select).value = auxiliary
+            tabs = view.query_one(TabbedContent)
+            tabs.active = "hub-details-tab"
+            await pilot.pause()
+            self.assertIn(
+                "Repository: org/Tiny-GGUF", str(view.query_one("#hub-metadata").render())
+            )
+            self.app.action_view("models")
+            await self.settle(pilot)
+            self.app.action_view("discover")
+            await self.settle(pilot)
+            tabs.active = "hub-readme-tab"
+            await pilot.pause()
+            self.assertTrue(markdown.is_on_screen)
+            self.assertIn("A **real widget** model card.", markdown.source)
+            view.select_repo("org/Second-GGUF")
+            await self.settle(pilot)
+            self.assertIn("# org/Second-GGUF", markdown.source)
+            self.assertNotIn("Tiny-GGUF", markdown.source)
+
+    async def test_discovery_readme_failure_allows_retrying_the_same_repository(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            view = self.app.query_one(DiscoverView)
+            with (
+                patch.object(view.client, "get", side_effect=httpx.ConnectError("offline")),
+                self.assertRaises(httpx.ConnectError),
+            ):
+                await view.load_details("org/Tiny-GGUF")
+            self.assertIn("Could not load this model card", view.query_one(Markdown).source)
+            self.assertEqual(view.repo_id, "")
+            view.select_repo("org/Tiny-GGUF")
+            await self.settle(pilot)
+            self.assertIn("# org/Tiny-GGUF", view.query_one(Markdown).source)
+            self.assertFalse(view.query_one("#hub-download", Button).disabled)
+
+    async def test_discovery_size_column_stays_visible_after_terminal_resizing(self):
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            table = self.app.query_one("#hub-table", DataTable)
+            for width, height in ((190, 52), (155, 42), (120, 36), (80, 24)):
+                with self.subTest(width=width):
+                    await pilot.resize_terminal(width, height)
+                    await pilot.pause()
+                    self.assertEqual(str(table.columns["size"].label), "Size (GB)")
+                    self.assertEqual(
+                        table.get_cell("org/Tiny-GGUF", "size").renderable, "1.0\u20132.0 GB"
+                    )
+                    self.assertEqual(
+                        table.get_cell("org/Second-GGUF", "size").renderable, "Unknown"
+                    )
+
+    async def test_discovery_estimates_use_one_gpu_until_multi_gpu_is_selected(self):
+        self.backend.gpu = {
+            "name": "GPU 0",
+            "vram": 24,
+            "devices": [
+                {"id": "0", "name": "GPU 0", "total_vram": 23.9, "vram": 24},
+                {"id": "1", "name": "RTX 5090", "total_vram": 31.8, "vram": 32},
+            ],
+            "total_system_vram": 55.7,
+        }
+        async with self.app.run_test(size=(190, 52)) as pilot:
+            await self.settle(pilot)
+            view = self.app.query_one(DiscoverView)
+            target = view.query_one("#hub-gpu-device", Select)
+            self.assertEqual(target.value, "0")
+            card = view.query_one("#hub-gpu", Static)
+            self.assertIn("23.9 GiB", str(card.render()))
+            target.value = "1"
+            await pilot.pause()
+            self.assertIn("RTX 5090", str(card.render()))
+            self.assertIn("31.8 GiB", str(card.render()))
+            await self.app.poll_status()
+            self.assertEqual(target.value, "1")
+            target.value = "all"
+            await pilot.pause()
+            self.assertIn("55.7 GiB", str(card.render()))
+            self.backend.gpu["devices"] = self.backend.gpu["devices"][:1]
+            await self.app.poll_status()
+            await pilot.pause()
+            self.assertEqual(target.value, "0")
+            self.assertIn("23.9 GiB", str(card.render()))
+
     async def test_dropdown_options_are_visible_and_selectable(self):
         async with self.app.run_test(size=(190, 52)) as pilot:
             await self.settle(pilot)
@@ -290,7 +406,9 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 self.app.query_one("#hub-quant", Select).value, "tiny-00001-of-00002.gguf"
             )
-            badge = self.app.query_one("#hub-table", DataTable).get_cell_at((0, 4))
+            badge = self.app.query_one("#hub-table", DataTable).get_cell(
+                "org/Tiny-GGUF", "capabilities"
+            )
             self.assertTrue(any(updated.warning in span.style for span in badge.renderable.spans))
             state_colors = [
                 segment.style.color.name

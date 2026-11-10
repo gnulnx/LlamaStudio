@@ -5,6 +5,7 @@ Scans GGUF directories and manages model switching.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,7 +236,18 @@ async def search_huggingface_models(query: str, sort: str = "downloads") -> list
             resp = await client.get(url, params=params, headers=headers)
             if resp.status_code != 200:
                 return []
-            return resp.json()
+            models = resp.json()
+            # The search API lists filenames but omits sizes, even with blobs=true.
+            # Reuse the connection pool and bound the repository metadata requests.
+            semaphore = asyncio.Semaphore(5)
+
+            async def add_sizes(model: dict[str, Any]) -> None:
+                async with semaphore:
+                    details = await _fetch_huggingface_model_details(client, model["id"])
+                model["gguf_sizes"] = details["gguf_sizes"] if details else {}
+
+            await asyncio.gather(*(add_sizes(model) for model in models))
+            return models
         except Exception as e:
             from .logger import logger
 
@@ -243,22 +255,77 @@ async def search_huggingface_models(query: str, sort: str = "downloads") -> list
             return []
 
 
-async def get_huggingface_model_details(repo_id: str) -> dict[str, Any] | None:
-    """Fetch complete metadata of a Hugging Face repository including file sizes."""
+def _is_hf_model_file(filename: str) -> bool:
+    """Exclude projectors, calibration data, and speculative decoding sidecars."""
+    name = Path(filename).name.lower()
+    return (
+        name.endswith(".gguf")
+        and not _is_mmproj(filename)
+        and not name.startswith(("imatrix", "mtp-", "mtp_"))
+        and "fastmtp" not in name
+        and "mtp" not in [part.lower() for part in Path(filename).parts[:-1]]
+        and not re.search(r"(?:^|[-_.])draft(?:[-_.]|$)", name)
+    )
+
+
+def _gguf_model_sizes(siblings: list[dict[str, Any]]) -> dict[str, int]:
+    """Map each model file to its full weight size, excluding auxiliary files.
+
+    Every shard maps to the sum of its complete set, so a small shard cannot be
+    mistaken for a small model. Incomplete or unsized sets stay unknown.
+    """
+    sizes = {}
+    shards: dict[tuple[str, int], dict[int, tuple[str, int]]] = {}
+    for sibling in siblings:
+        name = sibling.get("rfilename", "")
+        if not _is_hf_model_file(name):
+            continue
+        size = sibling.get("size") or (sibling.get("lfs") or {}).get("size")
+        if not isinstance(size, int) or size <= 0:
+            continue
+        match = re.fullmatch(r"(.+)-(\d{5})-of-(\d{5})\.gguf", name, re.IGNORECASE)
+        if match:
+            stem, part, count = match.groups()
+            shards.setdefault((stem, int(count)), {})[int(part)] = (name, size)
+        else:
+            sizes[name] = size
+    for (_, count), parts in shards.items():
+        if len(parts) == count and all(1 <= part <= count for part in parts):
+            total = sum(size for _, size in parts.values())
+            sizes.update({name: total for name, _ in parts.values()})
+    return sizes
+
+
+async def _fetch_huggingface_model_details(
+    client: httpx.AsyncClient, repo_id: str
+) -> dict[str, Any] | None:
+    """Fetch and normalize metadata using an existing Hub connection pool."""
     url = f"https://huggingface.co/api/models/{repo_id}"
     headers = {"User-Agent": "LLamaStudio-Client"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(url, headers=headers, params={"blobs": "true"})
-            if resp.status_code != 200:
-                return None
-            return resp.json()
-        except Exception as e:
-            from .logger import logger
-
-            logger.error(f"[model_manager] Error fetching HF details: {e}")
+    try:
+        resp = await client.get(url, headers=headers, params={"blobs": "true"})
+        if resp.status_code != 200:
             return None
+        details = resp.json()
+        details["gguf_files"] = [
+            s["rfilename"]
+            for s in details.get("siblings") or []
+            if _is_hf_model_file(s.get("rfilename", ""))
+        ]
+        details["gguf_sizes"] = _gguf_model_sizes(details.get("siblings") or [])
+        return details
+    except Exception as e:
+        from .logger import logger
+
+        logger.error(f"[model_manager] Error fetching HF details: {e}")
+        return None
+
+
+async def get_huggingface_model_details(repo_id: str) -> dict[str, Any] | None:
+    """Fetch complete metadata of a Hugging Face repository including file sizes."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        return await _fetch_huggingface_model_details(client, repo_id)
 
 
 async def get_huggingface_model_readme(repo_id: str) -> str:

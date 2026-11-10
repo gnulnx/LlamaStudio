@@ -49,6 +49,7 @@ llamastudio = "app.launcher:main"
 
 [project.optional-dependencies]
 dev = [
+    "playwright>=1.50,<2",
     "pre-commit",
     "pytest",
     "ruff",

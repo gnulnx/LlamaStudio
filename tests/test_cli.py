@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.cli import cli, load, load_saved_model_settings, oneshot, select_launch_view_for_cli, start
 from app.config import settings
+from app.config_store import ConfigLoader
 from app.tools import ToolResult
 
 
@@ -61,11 +62,15 @@ class FakeChatErrorStreamResponse(FakeChatStreamResponse):
 
 class TestCliLoadSettings(unittest.TestCase):
     def test_load_saved_model_settings_matches_equivalent_resolved_path(self):
-        with patch(
-            "app.cli.config_loader.get_model_profile_settings",
-            return_value={"ctx_size": 128000, "gpu_layers": 999},
-        ):
-            loaded_settings = load_saved_model_settings("/models/model.gguf")
+        with tempfile.TemporaryDirectory() as tmp:
+            blob = Path(tmp) / "weights.gguf"
+            blob.write_bytes(b"GGUF")
+            link = Path(tmp) / "snapshot.gguf"
+            link.symlink_to(blob)
+            loader = ConfigLoader(config_dir=Path(tmp) / "config")
+            loader.save_model_profile(str(blob), {"ctx_size": 128000, "gpu_layers": 999})
+            with patch("app.cli.config_loader", loader):
+                loaded_settings = load_saved_model_settings(str(link))
 
         self.assertEqual(loaded_settings["ctx_size"], 128000)
         self.assertEqual(loaded_settings["gpu_layers"], 999)
@@ -125,6 +130,20 @@ class TestCliLoadSettings(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["settings"]["parallel"], 2)
+
+    def test_model_load_failure_has_a_failing_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "model.gguf"
+            model_path.write_bytes(b"GGUF")
+            response = SimpleNamespace(status_code=502, text="Projector download failed")
+            with (
+                patch("app.cli.is_server_online", return_value=True),
+                patch("app.cli.httpx.post", return_value=response),
+                patch("app.cli.config_loader.get_model_profile_settings", return_value={}),
+            ):
+                result = CliRunner().invoke(load, [str(model_path)])
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertIn("Projector download failed", result.output)
 
     def test_load_can_ignore_saved_model_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -352,7 +371,7 @@ class TestCliLoadSettings(unittest.TestCase):
                     self.assertEqual(payload["workspace_root"], str(workspace))
                     self.assertEqual(payload[payload_key][0]["name"], name)
 
-    def test_oneshot_renders_structured_server_error(self):
+    def test_oneshot_renders_structured_server_error_and_exits_unsuccessfully(self):
         with (
             patch("app.cli.is_server_online", return_value=True),
             patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
@@ -361,7 +380,7 @@ class TestCliLoadSettings(unittest.TestCase):
         ):
             result = CliRunner().invoke(oneshot, ["Inspect the project"])
 
-        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertNotEqual(result.exit_code, 0, result.output)
         self.assertIn("Context window exceeded", result.output)
         self.assertIn("8307 tokens", result.output)
         self.assertIn("Reload the model with a larger context size", result.output)
@@ -387,6 +406,47 @@ class TestCliLoadSettings(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("small.en", result.output)
         self.assertIn("Stopped", result.output)
+
+    def test_oneshot_truncated_stream_is_not_reported_as_success(self):
+        class Truncated(FakeChatStreamResponse):
+            def iter_lines(self):
+                yield 'data: {"content":"Partial response"}'
+
+        with (
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+            patch("app.cli.httpx.post", return_value=FakeLoadResponse()),
+            patch("app.cli.httpx.stream", return_value=Truncated()),
+        ):
+            result = CliRunner().invoke(oneshot, ["Inspect the project"])
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertIn("Partial response", result.output)
+        self.assertIn("ended before completion", result.output)
+
+    def test_oneshot_without_a_running_model_fails_before_sending(self):
+        for online in (False, True):
+            with (
+                self.subTest(online=online),
+                patch("app.cli.is_server_online", return_value=online),
+                patch("app.cli.httpx.get", return_value=FakeStatusResponse(False)),
+                patch("app.cli.httpx.stream") as stream,
+            ):
+                result = CliRunner().invoke(oneshot, ["Test this model"])
+            self.assertNotEqual(result.exit_code, 0, result.output)
+            stream.assert_not_called()
+
+    def test_oneshot_missing_image_fails_before_sending(self):
+        with (
+            patch("app.cli.is_server_online", return_value=True),
+            patch("app.cli.httpx.get", return_value=FakeStatusResponse(True)),
+            patch("app.cli.httpx.stream") as stream,
+        ):
+            result = CliRunner().invoke(
+                oneshot, ["--image", ".runtime/nonexistent-image.png", "Read it"]
+            )
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertIn("Could not attach", result.output)
+        stream.assert_not_called()
 
     def test_speech_transcribe_uses_raw_audio_api(self):
         with tempfile.TemporaryDirectory() as tmp:
